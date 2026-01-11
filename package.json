@@ -2,11 +2,10 @@
   "name": "flowai-backend",
   "version": "1.0.0",
   "description": "Backend API for WhatsApp AI Agent Platform",
-  "main": "dist/server.js",
+  "main": "src/app.js",
   "scripts": {
-    "dev": "nodemon src/server.js",
-    "start": "node dist/server.js",
-    "build": "babel src --out-dir dist --copy-files",
+    "dev": "nodemon src/app.js",
+    "start": "node src/app.js",
     "test": "jest"
   },
   "dependencies": {
