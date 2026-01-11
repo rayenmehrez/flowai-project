@@ -1,9 +1,18 @@
 const Queue = require('bull');
 const { supabase } = require('../config/supabase');
 const { isRedisAvailable, getRedisConfig } = require('../config/redis');
-const whatsappService = require('../services/whatsapp');
 const aiService = require('../services/ai');
 const logger = require('../utils/logger');
+
+// Lazy load whatsappService to avoid circular dependency
+// whatsappService imports addMessage from this file, so we load it only when needed
+let whatsappService = null;
+function getWhatsappService() {
+  if (!whatsappService) {
+    whatsappService = require('../services/whatsapp');
+  }
+  return whatsappService;
+}
 
 // Get Redis configuration
 const redisConfig = getRedisConfig();
@@ -163,7 +172,7 @@ if (messageQueue) {
 
     // Send response via WhatsApp
     const chatId = `${conversation.contact_number}@c.us`;
-    const sendResult = await whatsappService.sendMessage(
+    const sendResult = await getWhatsappService().sendMessage(
       agentId,
       chatId,
       aiResult.response
