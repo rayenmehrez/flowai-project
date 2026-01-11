@@ -73,11 +73,24 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/agents', require('./routes/agents'));
-app.use('/api/dashboard', require('./routes/dashboard'));
-app.use('/api/webhooks', require('./routes/webhooks'));
+// Routes - Load and mount with error handling
+try {
+  logger.info('Loading routes...');
+  app.use('/api/auth', require('./routes/auth'));
+  logger.info('✓ Auth routes loaded');
+  
+  app.use('/api/agents', require('./routes/agents'));
+  logger.info('✓ Agent routes loaded');
+  
+  app.use('/api/dashboard', require('./routes/dashboard'));
+  logger.info('✓ Dashboard routes loaded');
+  
+  app.use('/api/webhooks', require('./routes/webhooks'));
+  logger.info('✓ Webhook routes loaded');
+} catch (error) {
+  logger.error('Error loading routes:', error);
+  throw error;
+}
 
 // Health check
 app.get('/health', (req, res) => {
