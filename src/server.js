@@ -8,6 +8,10 @@ const logger = require('./utils/logger');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Trust proxy - Required for Render.com and other reverse proxies
+// This allows Express to correctly identify client IPs from X-Forwarded-For header
+app.set('trust proxy', true);
+
 // CORS configuration - MUST be before routes and all other middleware
 const allowedOrigins = [
   'http://localhost:3000',

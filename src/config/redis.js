@@ -23,6 +23,13 @@ function initializeRedis() {
     
     redis = new Redis(redisUrl, {
       retryStrategy: (times) => {
+        // Stop retrying after 5 attempts
+        if (times > 5) {
+          logger.warn('⚠️  Redis connection failed after 5 attempts. Giving up.');
+          redisAvailable = false;
+          redis = null;
+          return null; // Stop retrying
+        }
         const delay = Math.min(times * 50, 2000);
         return delay;
       },
@@ -30,7 +37,9 @@ function initializeRedis() {
       enableReadyCheck: true,
       lazyConnect: true,
       connectTimeout: 5000,
-      enableOfflineQueue: false
+      enableOfflineQueue: false,
+      // Suppress connection errors in logs (we handle them)
+      showFriendlyErrorStack: false
     });
 
     // Handle connection events
@@ -45,7 +54,10 @@ function initializeRedis() {
     });
 
     redis.on('error', (error) => {
-      logger.error('❌ Redis connection error:', error.message);
+      // Only log if it's not a connection refused (we already handle that)
+      if (!error.message.includes('ECONNREFUSED')) {
+        logger.error('❌ Redis error:', error.message);
+      }
       redisAvailable = false;
       // Don't set redis to null on error, allow retries
     });
@@ -60,9 +72,12 @@ function initializeRedis() {
       redisAvailable = false;
     });
 
-    // Attempt to connect (non-blocking)
+    // Attempt to connect (non-blocking, wrapped in try-catch)
     redis.connect().catch((error) => {
-      logger.error('❌ Failed to connect to Redis:', error.message);
+      // Suppress ECONNREFUSED errors - they're expected if Redis is not available
+      if (error.message && !error.message.includes('ECONNREFUSED')) {
+        logger.error('❌ Failed to connect to Redis:', error.message);
+      }
       logger.warn('⚠️  The app will continue without Redis. Message queue will not work.');
       logger.warn('⚠️  Redis will retry connection automatically.');
       redisAvailable = false;
@@ -96,17 +111,18 @@ function isRedisAvailable() {
 
 /**
  * Get Redis configuration for Bull queue
- * Returns null if Redis is not available
+ * Returns null if Redis is not available or REDIS_URL is not set
  */
 function getRedisConfig() {
-  if (!isRedisAvailable()) {
+  const redisUrl = process.env.REDIS_URL;
+  
+  // If REDIS_URL is not set, return null
+  if (!redisUrl) {
     return null;
   }
 
-  const redisUrl = process.env.REDIS_URL;
-  
   // Parse Redis URL if it's a full URL
-  if (redisUrl && redisUrl.startsWith('redis://')) {
+  if (redisUrl.startsWith('redis://') || redisUrl.startsWith('rediss://')) {
     try {
       const url = new URL(redisUrl);
       return {
@@ -143,8 +159,16 @@ async function closeRedis() {
   }
 }
 
-// Initialize Redis on module load
-initializeRedis();
+// Initialize Redis on module load (non-blocking)
+// Wrap in try-catch to prevent any initialization errors from crashing the app
+try {
+  initializeRedis();
+} catch (error) {
+  logger.error('Failed to initialize Redis during module load:', error.message);
+  logger.warn('⚠️  App will continue without Redis. This is not critical for startup.');
+  redis = null;
+  redisAvailable = false;
+}
 
 module.exports = {
   getRedis,

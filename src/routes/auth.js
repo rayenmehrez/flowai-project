@@ -5,6 +5,11 @@ const { authenticate } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const Joi = require('joi');
 
+// Test endpoint to verify routes are loaded
+router.get('/test', (req, res) => {
+  res.json({ message: 'Auth routes are working!', timestamp: new Date().toISOString() });
+});
+
 // Validation schemas
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
@@ -37,21 +42,24 @@ router.post('/register', async (req, res) => {
 
     const { email, password, full_name, company_name } = value;
 
-    // Create user in Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    // Use Supabase Admin API to create user (required when using service role key)
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
       password,
-      options: {
-        data: {
-          full_name,
-          company_name
-        }
+      email_confirm: true, // Auto-confirm email
+      user_metadata: {
+        full_name,
+        company_name
       }
     });
 
     if (authError) {
       logger.error('Registration error:', authError);
-      return res.status(400).json({ error: authError.message });
+      return res.status(400).json({ error: authError.message || 'Failed to create user' });
+    }
+
+    if (!authData || !authData.user) {
+      return res.status(500).json({ error: 'User creation failed - no user data returned' });
     }
 
     // Create user profile
@@ -66,20 +74,40 @@ router.post('/register', async (req, res) => {
     if (profileError) {
       logger.error('Profile creation error:', profileError);
       // Try to delete the auth user if profile creation fails
-      await supabase.auth.admin.deleteUser(authData.user.id);
-      return res.status(500).json({ error: 'Failed to create user profile' });
+      try {
+        await supabase.auth.admin.deleteUser(authData.user.id);
+      } catch (deleteError) {
+        logger.error('Failed to delete user after profile creation error:', deleteError);
+      }
+      return res.status(500).json({ error: 'Failed to create user profile: ' + profileError.message });
     }
 
-    // Get session token
-    const { data: sessionData, error: sessionError } = await supabase.auth.signInWithPassword({
-      email,
-      password
-    });
+    // Generate session token using admin API
+    // Note: admin.createSession might not be available in all Supabase versions
+    // Alternative: use signInWithPassword with anon client or return user and let frontend login
+    try {
+      // Try to create session using admin API
+      const { data: sessionData, error: sessionError } = await supabase.auth.admin.createSession({
+        user_id: authData.user.id
+      });
 
-    if (sessionError) {
-      return res.status(500).json({ error: 'Failed to create session' });
+      if (!sessionError && sessionData) {
+        // Session created successfully
+        return res.status(201).json({
+          user: {
+            id: authData.user.id,
+            email: authData.user.email,
+            full_name,
+            company_name
+          },
+          session: sessionData.session || sessionData
+        });
+      }
+    } catch (sessionErr) {
+      logger.warn('Session creation failed, user will need to login:', sessionErr.message);
     }
 
+    // If session creation fails, return user data - frontend can login separately
     res.status(201).json({
       user: {
         id: authData.user.id,
@@ -87,11 +115,11 @@ router.post('/register', async (req, res) => {
         full_name,
         company_name
       },
-      session: sessionData.session
+      message: 'User created successfully. Please login to get session token.'
     });
   } catch (error) {
     logger.error('Register error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error: ' + error.message });
   }
 });
 

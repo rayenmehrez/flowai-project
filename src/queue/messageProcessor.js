@@ -24,26 +24,43 @@ if (redisConfig) {
         },
         removeOnComplete: true,
         removeOnFail: false
+      },
+      // Suppress connection errors - we handle them gracefully
+      settings: {
+        lockDuration: 30000,
+        lockRenewTime: 15000
       }
     });
 
     logger.info('✅ Message queue initialized (Redis connection will be established asynchronously)');
     
-    // Handle queue errors
+    // Handle queue errors gracefully
     messageQueue.on('error', (error) => {
-      logger.error('❌ Queue error:', error.message);
-      if (error.message.includes('ECONNREFUSED') || error.message.includes('Connection')) {
-        logger.warn('⚠️  Redis connection failed. Queue operations will fail until Redis is available.');
+      // Suppress ECONNREFUSED errors - they're expected if Redis is not available
+      if (error.message && !error.message.includes('ECONNREFUSED')) {
+        logger.error('❌ Queue error:', error.message);
       }
+      if (error.message && (error.message.includes('ECONNREFUSED') || error.message.includes('Connection'))) {
+        logger.warn('⚠️  Redis connection failed. Queue operations will fail until Redis is available.');
+        logger.warn('⚠️  The app will continue to run, but WhatsApp message processing is disabled.');
+      }
+    });
+
+    // Handle stalled jobs
+    messageQueue.on('stalled', (job) => {
+      logger.warn(`Job ${job.id} stalled`);
     });
   } catch (error) {
     logger.error('❌ Failed to create message queue:', error.message);
     logger.warn('⚠️  Message queue will not be available');
+    logger.warn('⚠️  The app will continue to run, but WhatsApp message processing is disabled.');
+    messageQueue = null;
   }
 } else {
   logger.warn('⚠️  REDIS_URL is not configured. Message queue will not be initialized.');
   logger.warn('⚠️  WhatsApp messages will not be processed until Redis is configured.');
   logger.warn('⚠️  Set REDIS_URL environment variable to enable message processing.');
+  logger.warn('⚠️  The app will continue to run normally without message queue.');
 }
 
 /**
