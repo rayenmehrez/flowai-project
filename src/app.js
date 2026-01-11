@@ -8,5 +8,33 @@ try {
   logger.warn('⚠️  App will continue, but WhatsApp message processing may not work.');
 }
 
+// Graceful shutdown handlers
+const whatsappService = require('./services/whatsapp.service');
+const logger = require('./utils/logger');
+
+process.on('SIGTERM', async () => {
+  logger.info('SIGTERM received, shutting down gracefully...');
+  try {
+    await whatsappService.destroyAllClients();
+    logger.info('Graceful shutdown completed');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+});
+
+process.on('SIGINT', async () => {
+  logger.info('SIGINT received, shutting down gracefully...');
+  try {
+    await whatsappService.destroyAllClients();
+    logger.info('Graceful shutdown completed');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during graceful shutdown:', error);
+    process.exit(1);
+  }
+});
+
 // Start server
 require('./server');

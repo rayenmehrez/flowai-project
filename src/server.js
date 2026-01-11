@@ -103,6 +103,9 @@ try {
   app.use('/api/webhooks', require('./routes/webhooks'));
   logger.info('✓ Webhook routes loaded');
   
+  app.use('/api/whatsapp', require('./routes/whatsapp.routes'));
+  logger.info('✓ WhatsApp routes loaded');
+  
   // Log all registered routes for debugging
   logger.info('All routes registered successfully');
 } catch (error) {

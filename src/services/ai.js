@@ -165,6 +165,111 @@ Rules:
   }
 }
 
+/**
+ * Process WhatsApp message with AI (optimized for WhatsApp)
+ * @param {string} agentId - Agent ID
+ * @param {string} messageText - Incoming message text
+ * @param {string} customerPhone - Customer phone number
+ * @returns {Promise<Object>} AI response with message content
+ */
+async function processWhatsAppMessage(agentId, messageText, customerPhone) {
+  const startTime = Date.now();
+  
+  try {
+    // Get agent configuration
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('*')
+      .eq('id', agentId)
+      .single();
+
+    if (agentError || !agent) {
+      throw new Error('Agent not found');
+    }
+
+    // Get active knowledge base entries
+    const { data: knowledgeEntries, error: knowledgeError } = await supabase
+      .from('knowledge_base')
+      .select('question, answer')
+      .eq('agent_id', agentId)
+      .eq('enabled', true)
+      .order('priority', { ascending: false });
+
+    if (knowledgeError) {
+      logger.error('Knowledge fetch error:', knowledgeError);
+    }
+
+    // Build knowledge base context
+    const knowledgeContext = knowledgeEntries && knowledgeEntries.length > 0
+      ? knowledgeEntries.map(k => `Q: ${k.question}\nA: ${k.answer}`).join('\n\n')
+      : 'No specific business information provided.';
+
+    // Construct system prompt optimized for WhatsApp (short, friendly responses)
+    const systemPrompt = `You are an AI assistant for ${agent.name || 'a business'}. ${agent.description || ''}
+
+Your personality: ${agent.personality || 'You are helpful, friendly, and concise.'}
+
+Business Information:
+${knowledgeContext}
+
+Rules for WhatsApp responses:
+- Keep responses SHORT (2-3 sentences maximum)
+- Be friendly and conversational
+- Use emojis sparingly (1-2 per message)
+- Answer questions based on the knowledge base
+- If you don't know something, politely say so
+- Respond in ${agent.language || 'English'}
+- Be natural and helpful
+- Never make up information not in the knowledge base`;
+
+    // Call OpenRouter API
+    const response = await axios.post(
+      OPENROUTER_API_URL,
+      {
+        model: MODEL,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: messageText }
+        ],
+        max_tokens: 200, // Shorter for WhatsApp
+        temperature: 0.7
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json',
+          'HTTP-Referer': process.env.BACKEND_URL || process.env.FRONTEND_URL || 'http://localhost:3001',
+          'X-Title': 'FlowAI WhatsApp Agent'
+        }
+      }
+    );
+
+    const aiResponse = response.data.choices[0].message.content.trim();
+    const tokensUsed = response.data.usage.total_tokens || 0;
+    const processingTime = Date.now() - startTime;
+
+    logger.info(`AI processed WhatsApp message for agent ${agentId}. Tokens: ${tokensUsed}, Time: ${processingTime}ms`);
+
+    return {
+      response: aiResponse,
+      tokensUsed,
+      processingTime
+    };
+  } catch (error) {
+    logger.error('AI WhatsApp processing error:', error);
+    const processingTime = Date.now() - startTime;
+    
+    // Return fallback response
+    return {
+      response: "I'm having trouble right now. Please try again later. 😊",
+      tokensUsed: 0,
+      processingTime,
+      error: error.message
+    };
+  }
+}
+
 module.exports = {
-  generateResponse
+  generateResponse,
+  processWhatsAppMessage
 };
