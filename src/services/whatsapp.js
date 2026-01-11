@@ -40,12 +40,47 @@ async function connect(agentId) {
     }
 
     // Create client with LocalAuth
+    // Configure Puppeteer for Render.com environment
+    const puppeteerOptions = {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--disable-gpu',
+        '--single-process'
+      ]
+    };
+
+    // Use system Chromium on Render.com if available
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+      puppeteerOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+      logger.info(`Using Chromium at: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+    } else if (process.platform === 'linux') {
+      // Try common Linux paths
+      const possiblePaths = [
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable'
+      ];
+      
+      // fs is already imported at the top of the file
+      for (const execPath of possiblePaths) {
+        if (fs.existsSync(execPath)) {
+          puppeteerOptions.executablePath = execPath;
+          logger.info(`Found Chromium at: ${execPath}`);
+          break;
+        }
+      }
+    }
+
     const client = new Client({
       authStrategy: new LocalAuth({ dataPath: sessionPath }),
-      puppeteer: {
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
-      }
+      puppeteer: puppeteerOptions
     });
 
     let qrCodeBase64 = null;
