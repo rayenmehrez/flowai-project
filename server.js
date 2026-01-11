@@ -9,12 +9,30 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // CORS configuration - MUST be before routes
+// Normalize origins to remove trailing slashes
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://v0-flowai-website-design.vercel.app'
+].map(origin => origin.replace(/\/$/, '')); // Remove trailing slash
+
 const corsOptions = {
-  origin: [
-    'http://localhost:3000',
-    'https://v0-flowai-website-design.vercel.app'
-  ],
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Normalize the incoming origin (remove trailing slash)
+    const normalizedOrigin = origin.replace(/\/$/, '');
+    
+    if (allowedOrigins.indexOf(normalizedOrigin) !== -1) {
+      callback(null, true);
+    } else {
+      logger.warn(`CORS blocked origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200
 };
 
