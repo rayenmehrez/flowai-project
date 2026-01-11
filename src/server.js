@@ -64,25 +64,36 @@ app.use(helmet({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Rate limiting
+// Rate limiting - Configured for proxy (Render.com)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  max: 100, // limit each IP to 100 requests per windowMs
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  trustProxy: true // Trust proxy headers from Render.com
 });
 app.use('/api/', limiter);
 
-// Request logging
+// Request logging - Log all requests for debugging
 app.use((req, res, next) => {
-  logger.info(`${req.method} ${req.path}`, { ip: req.ip });
+  logger.info(`${req.method} ${req.path}`, { 
+    ip: req.ip,
+    originalUrl: req.originalUrl,
+    baseUrl: req.baseUrl
+  });
   next();
 });
 
 // Routes - Load and mount with error handling
 try {
   logger.info('Loading routes...');
-  app.use('/api/auth', require('./routes/auth'));
-  logger.info('✓ Auth routes loaded');
   
+  // Load auth routes
+  const authRoutes = require('./routes/auth');
+  app.use('/api/auth', authRoutes);
+  logger.info('✓ Auth routes loaded at /api/auth');
+  
+  // Load other routes
   app.use('/api/agents', require('./routes/agents'));
   logger.info('✓ Agent routes loaded');
   
@@ -91,8 +102,12 @@ try {
   
   app.use('/api/webhooks', require('./routes/webhooks'));
   logger.info('✓ Webhook routes loaded');
+  
+  // Log all registered routes for debugging
+  logger.info('All routes registered successfully');
 } catch (error) {
   logger.error('Error loading routes:', error);
+  logger.error('Stack:', error.stack);
   throw error;
 }
 
