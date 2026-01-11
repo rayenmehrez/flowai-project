@@ -8,39 +8,22 @@ const logger = require('./utils/logger');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// CORS configuration - MUST be before routes
+const corsOptions = {
+  origin: [
+    'http://localhost:3000',
+    'https://v0-flowai-website-design.vercel.app'
+  ],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+
+app.use(cors(corsOptions));
+
 // Middleware
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginEmbedderPolicy: false
-}));
-
-// CORS configuration - allow multiple origins
-const allowedOrigins = [
-  'http://localhost:3000',
-  'http://localhost:8000',
-  'https://v0-flowai-website-design.vercel.app',
-  process.env.FRONTEND_URL
-].filter(Boolean); // Remove undefined values
-
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV === 'development') {
-      callback(null, true);
-    } else {
-      // In production, you might want to be more strict
-      if (process.env.NODE_ENV === 'production' && process.env.ALLOW_ALL_ORIGINS !== 'true') {
-        callback(new Error('Not allowed by CORS'));
-      } else {
-        callback(null, true);
-      }
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
