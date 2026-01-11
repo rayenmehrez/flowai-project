@@ -164,12 +164,16 @@ function setupMessageListener(agentId, client) {
       };
 
       // Add to message queue for processing
-      await addMessage({
+      const queueResult = addMessage({
         agentId,
         ...messageData
       });
 
-      logger.info(`Message queued for agent ${agentId}`, { from: messageData.from });
+      if (queueResult) {
+        logger.info(`Message queued for agent ${agentId}`, { from: messageData.from });
+      } else {
+        logger.error(`Failed to queue message for agent ${agentId}. Redis may not be available.`, { from: messageData.from });
+      }
     } catch (error) {
       logger.error('Message listener error:', error);
     }

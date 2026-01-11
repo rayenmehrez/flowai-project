@@ -8,11 +8,54 @@ const logger = require('./utils/logger');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(helmet());
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true
+// CORS configuration - MUST be before routes and all other middleware
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:8000',
+  'https://v0-flowai-website-design.vercel.app'
+];
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, Postman, or curl requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    // Normalize origins (remove trailing slashes and protocol variations)
+    const normalizeOrigin = (orig) => {
+      return orig.replace(/\/+$/, '').toLowerCase();
+    };
+    
+    const normalizedRequestOrigin = normalizeOrigin(origin);
+    const isAllowed = allowedOrigins.some(allowed => 
+      normalizeOrigin(allowed) === normalizedRequestOrigin
+    );
+    
+    if (isAllowed) {
+      logger.info(`CORS allowed origin: ${origin}`);
+      callback(null, true);
+    } else {
+      logger.warn(`CORS blocked origin: ${origin} (allowed: ${allowedOrigins.join(', ')})`);
+      callback(new Error(`Not allowed by CORS. Origin: ${origin}`));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Range', 'X-Content-Range'],
+  optionsSuccessStatus: 200,
+  preflightContinue: false
+};
+
+// Apply CORS FIRST, before any other middleware
+app.use(cors(corsOptions));
+
+// Middleware - Helmet configured to not interfere with CORS
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false // Disable CSP to avoid CORS conflicts
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));

@@ -1,35 +1,56 @@
 const Queue = require('bull');
-const Redis = require('ioredis');
 const { supabase } = require('../config/supabase');
+const { isRedisAvailable, getRedisConfig } = require('../config/redis');
 const whatsappService = require('../services/whatsapp');
 const aiService = require('../services/ai');
 const logger = require('../utils/logger');
 
-// Create Redis connection
-const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+// Get Redis configuration
+const redisConfig = getRedisConfig();
 
-// Create Bull queue
-const messageQueue = new Queue('message-processing', {
-  redis: {
-    host: process.env.REDIS_HOST || 'localhost',
-    port: process.env.REDIS_PORT || 6379,
-    password: process.env.REDIS_PASSWORD
-  },
-  defaultJobOptions: {
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 2000
-    },
-    removeOnComplete: true,
-    removeOnFail: false
+// Create Bull queue only if Redis config is available
+// Note: We check config availability, not connection status, as connection is async
+let messageQueue = null;
+
+if (redisConfig) {
+  try {
+    messageQueue = new Queue('message-processing', {
+      redis: redisConfig,
+      defaultJobOptions: {
+        attempts: 3,
+        backoff: {
+          type: 'exponential',
+          delay: 2000
+        },
+        removeOnComplete: true,
+        removeOnFail: false
+      }
+    });
+
+    logger.info('✅ Message queue initialized (Redis connection will be established asynchronously)');
+    
+    // Handle queue errors
+    messageQueue.on('error', (error) => {
+      logger.error('❌ Queue error:', error.message);
+      if (error.message.includes('ECONNREFUSED') || error.message.includes('Connection')) {
+        logger.warn('⚠️  Redis connection failed. Queue operations will fail until Redis is available.');
+      }
+    });
+  } catch (error) {
+    logger.error('❌ Failed to create message queue:', error.message);
+    logger.warn('⚠️  Message queue will not be available');
   }
-});
+} else {
+  logger.warn('⚠️  REDIS_URL is not configured. Message queue will not be initialized.');
+  logger.warn('⚠️  WhatsApp messages will not be processed until Redis is configured.');
+  logger.warn('⚠️  Set REDIS_URL environment variable to enable message processing.');
+}
 
 /**
  * Process incoming WhatsApp message
  */
-messageQueue.process(5, async (job) => {
+if (messageQueue) {
+  messageQueue.process(5, async (job) => {
   const { agentId, from, body, timestamp, messageId, contactName } = job.data;
   
   logger.info(`Processing message for agent ${agentId}`, { from, messageId });
@@ -209,22 +230,42 @@ messageQueue.process(5, async (job) => {
     logger.error(`Message processing failed for agent ${agentId}:`, error);
     throw error; // Will trigger retry
   }
-});
+  });
 
-// Queue event handlers
-messageQueue.on('completed', (job, result) => {
-  logger.info(`Job ${job.id} completed`, result);
-});
+  // Queue event handlers
+  messageQueue.on('completed', (job, result) => {
+    logger.info(`Job ${job.id} completed`, result);
+  });
 
-messageQueue.on('failed', (job, err) => {
-  logger.error(`Job ${job.id} failed:`, err);
-});
+  messageQueue.on('failed', (job, err) => {
+    logger.error(`Job ${job.id} failed:`, err);
+  });
 
-messageQueue.on('error', (error) => {
-  logger.error('Queue error:', error);
-});
+  messageQueue.on('error', (error) => {
+    logger.error('Queue error:', error);
+  });
+}
+
+/**
+ * Add message to queue for processing
+ * Returns false if queue is not available
+ */
+function addMessage(messageData) {
+  if (!messageQueue) {
+    logger.warn('⚠️  Cannot add message to queue: Redis is not available');
+    return false;
+  }
+  
+  try {
+    return messageQueue.add(messageData);
+  } catch (error) {
+    logger.error('Failed to add message to queue:', error);
+    return false;
+  }
+}
 
 module.exports = {
   messageQueue,
-  addMessage: (messageData) => messageQueue.add(messageData)
+  addMessage,
+  isQueueAvailable: () => messageQueue !== null
 };
