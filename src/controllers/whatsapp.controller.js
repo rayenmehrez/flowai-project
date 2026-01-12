@@ -33,12 +33,33 @@ async function generateQR(req, res) {
     // Initialize client and generate QR
     const result = await whatsappService.initializeClient(agentId, userId);
 
+    // If already connected, return connected status
+    if (result.status === 'connected' && result.phoneNumber) {
+      logger.info('Agent already connected', { agentId, phoneNumber: result.phoneNumber });
+      return res.json({
+        success: true,
+        agentId,
+        status: 'connected',
+        connected: true,
+        phoneNumber: result.phoneNumber,
+        qrCode: null
+      });
+    }
+
+    // Get current QR code and status from service
+    const qrStatus = whatsappService.getQRStatus(agentId);
+    const connectionStatus = whatsappService.getConnectionStatus(agentId);
+
+    // Return QR code and status
+    logger.info('QR code generated', { agentId, hasQR: !!qrStatus.qrCode, status: connectionStatus.status });
+    
     res.json({
       success: true,
       agentId,
-      status: result.status,
-      qrCode: result.qrCode,
-      phoneNumber: result.phoneNumber || null
+      status: connectionStatus.status || result.status || 'connecting',
+      connected: connectionStatus.isConnected || false,
+      qrCode: qrStatus.qrCode || result.qrCode || null,
+      phoneNumber: connectionStatus.phoneNumber || null
     });
   } catch (error) {
     logger.error('Generate QR error:', error);
@@ -78,9 +99,13 @@ async function checkConnectionStatus(req, res) {
 
     const status = whatsappService.getConnectionStatus(agentId);
 
+    // Return status in format expected by frontend
     res.json({
       success: true,
-      ...status
+      connected: status.isConnected || status.status === 'connected',
+      status: status.status || 'not_connected',
+      phoneNumber: status.phoneNumber || agent.phone_number || null,
+      qrCode: status.qrCode || null
     });
   } catch (error) {
     logger.error('Check connection status error:', error);
