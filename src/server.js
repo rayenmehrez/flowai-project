@@ -15,14 +15,24 @@ app.set('trust proxy', true);
 // CORS configuration - MUST be before routes and all other middleware
 const allowedOrigins = [
   'http://localhost:3000',
+  'http://localhost:3001',
   'http://localhost:8000',
+  process.env.FRONTEND_URL,
+  process.env.BACKEND_URL,
   'https://v0-flowai-website-design.vercel.app'
-];
+].filter(Boolean);
 
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, or curl requests)
     if (!origin) {
+      logger.debug('CORS: No origin (allowed)');
+      return callback(null, true);
+    }
+    
+    // In development, allow localhost origins
+    if (process.env.NODE_ENV === 'development' && origin.includes('localhost')) {
+      logger.info(`CORS allowed (dev): ${origin}`);
       return callback(null, true);
     }
     
@@ -86,55 +96,125 @@ app.use((req, res, next) => {
 
 // Routes - Load and mount with error handling
 try {
-  logger.info('Loading routes...');
+  logger.info('═══════════════════════════════════════');
+  logger.info('Loading API routes...');
+  logger.info('═══════════════════════════════════════');
   
   // Load auth routes
   const authRoutes = require('./routes/auth');
   app.use('/api/auth', authRoutes);
   logger.info('✓ Auth routes loaded at /api/auth');
   
-  // Load other routes
+  // Load agent routes
   app.use('/api/agents', require('./routes/agents'));
-  logger.info('✓ Agent routes loaded');
+  logger.info('✓ Agent routes loaded at /api/agents');
   
+  // Load dashboard routes
   app.use('/api/dashboard', require('./routes/dashboard'));
-  logger.info('✓ Dashboard routes loaded');
+  logger.info('✓ Dashboard routes loaded at /api/dashboard');
   
+  // Load webhook routes
   app.use('/api/webhooks', require('./routes/webhooks'));
-  logger.info('✓ Webhook routes loaded');
+  logger.info('✓ Webhook routes loaded at /api/webhooks');
   
+  // Load WhatsApp routes
   app.use('/api/whatsapp', require('./routes/whatsapp.routes'));
-  logger.info('✓ WhatsApp routes loaded');
+  logger.info('✓ WhatsApp routes loaded at /api/whatsapp');
   
   // Log all registered routes for debugging
-  logger.info('All routes registered successfully');
+  logger.info('═══════════════════════════════════════');
+  logger.info('✅ All routes registered successfully');
+  logger.info('═══════════════════════════════════════');
+  logger.info('');
+  logger.info('Available endpoints:');
+  logger.info('  GET    /health');
+  logger.info('  GET    /api/agents');
+  logger.info('  POST   /api/agents');
+  logger.info('  GET    /api/agents/:id');
+  logger.info('  PUT    /api/agents/:id');
+  logger.info('  DELETE /api/agents/:id');
+  logger.info('  POST   /api/whatsapp/generate-qr/:agentId');
+  logger.info('  GET    /api/whatsapp/connection-status/:agentId');
+  logger.info('  POST   /api/whatsapp/disconnect/:agentId');
+  logger.info('');
 } catch (error) {
-  logger.error('Error loading routes:', error);
+  logger.error('❌ Error loading routes:', error);
   logger.error('Stack:', error.stack);
   throw error;
 }
 
-// Health check
+// Health check (public endpoint)
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'FlowAI Backend API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      agents: '/api/agents',
+      whatsapp: '/api/whatsapp',
+      auth: '/api/auth'
+    }
+  });
 });
 
 // Error handling middleware
 app.use((err, req, res, next) => {
   logger.error('Error:', err);
+  
+  // CORS errors
+  if (err.message && err.message.includes('CORS')) {
+    return res.status(403).json({
+      success: false,
+      error: 'CORS Error',
+      message: err.message
+    });
+  }
+  
   res.status(err.status || 500).json({
+    success: false,
     error: err.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    ...(process.env.NODE_ENV === 'development' && { 
+      stack: err.stack,
+      details: err 
+    })
   });
 });
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  logger.warn('404 Not Found:', { method: req.method, path: req.path });
+  res.status(404).json({ 
+    success: false,
+    error: 'Not found',
+    path: req.path,
+    method: req.method,
+    message: `Route ${req.method} ${req.path} not found`
+  });
 });
 
 app.listen(PORT, () => {
-  logger.info(`Server running on port ${PORT}`);
+  logger.info('');
+  logger.info('╔═══════════════════════════════════════╗');
+  logger.info('║   🚀 FlowAI Backend Server           ║');
+  logger.info('║                                       ║');
+  logger.info(`║   📡 Port: ${PORT.toString().padEnd(30)}║`);
+  logger.info(`║   🌍 Environment: ${(process.env.NODE_ENV || 'development').padEnd(24)}║`);
+  logger.info('║   ✅ Server is running                ║');
+  logger.info('╚═══════════════════════════════════════╝');
+  logger.info('');
+  logger.info(`Health check: http://localhost:${PORT}/health`);
+  logger.info(`API Base: http://localhost:${PORT}/api`);
+  logger.info('');
 });
 
 module.exports = app;

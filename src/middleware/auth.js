@@ -6,28 +6,68 @@ const logger = require('../utils/logger');
  */
 const authenticate = async (req, res, next) => {
   try {
+    // Get token from Authorization header
     const authHeader = req.headers.authorization;
     
+    logger.info('Auth check:', { 
+      path: req.path, 
+      method: req.method,
+      hasAuthHeader: !!authHeader 
+    });
+
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'No token provided' });
+      logger.warn('No valid authorization header', { path: req.path });
+      return res.status(401).json({ 
+        success: false,
+        error: 'Unauthorized',
+        message: 'No authorization token provided' 
+      });
     }
 
-    const token = authHeader.substring(7);
-    
+    const token = authHeader.substring(7); // Remove 'Bearer '
+    logger.debug('Token extracted', { tokenLength: token.length });
+
     // Verify token with Supabase
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
-    if (error || !user) {
-      logger.warn('Authentication failed', { error: error?.message });
-      return res.status(401).json({ error: 'Invalid or expired token' });
+    if (error) {
+      logger.warn('Token verification error', { 
+        error: error.message,
+        path: req.path 
+      });
+      return res.status(401).json({ 
+        success: false,
+        error: 'Unauthorized',
+        message: 'Invalid or expired token' 
+      });
     }
 
+    if (!user) {
+      logger.warn('No user found with token', { path: req.path });
+      return res.status(401).json({ 
+        success: false,
+        error: 'Unauthorized',
+        message: 'User not found' 
+      });
+    }
+
+    logger.info('User authenticated', { userId: user.id, path: req.path });
+
     // Attach user to request
-    req.user = user;
+    req.user = {
+      id: user.id,
+      email: user.email,
+      ...user.user_metadata
+    };
+
     next();
   } catch (error) {
-    logger.error('Auth middleware error:', error);
-    res.status(500).json({ error: 'Authentication error' });
+    logger.error('Authentication middleware error:', error);
+    return res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: 'Authentication failed' 
+    });
   }
 };
 
@@ -77,13 +117,27 @@ const checkOwnership = (resourceType) => {
       }
 
       if (resourceUserId !== userId) {
-        return res.status(403).json({ error: 'Access denied' });
+        logger.warn('Access denied', { 
+          userId, 
+          resourceUserId, 
+          resourceType,
+          path: req.path 
+        });
+        return res.status(403).json({ 
+          success: false,
+          error: 'Forbidden',
+          message: 'Access denied' 
+        });
       }
 
       next();
     } catch (error) {
       logger.error('Ownership check error:', error);
-      res.status(500).json({ error: 'Authorization error' });
+      res.status(500).json({ 
+        success: false,
+        error: 'Internal server error',
+        message: 'Authorization error' 
+      });
     }
   };
 };

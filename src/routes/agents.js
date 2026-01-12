@@ -53,7 +53,11 @@ router.get('/', authenticate, async (req, res) => {
 
     if (error) {
       logger.error('Agents fetch error:', error);
-      return res.status(500).json({ error: 'Failed to fetch agents' });
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to fetch agents',
+        message: error.message 
+      });
     }
 
     // Get total count
@@ -63,7 +67,9 @@ router.get('/', authenticate, async (req, res) => {
       .eq('user_id', req.user.id);
 
     res.json({
-      agents,
+      success: true,
+      agents: agents || [],
+      count: agents?.length || 0,
       pagination: {
         page,
         limit,
@@ -73,7 +79,11 @@ router.get('/', authenticate, async (req, res) => {
     });
   } catch (error) {
     logger.error('Get agents error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 });
 
@@ -85,7 +95,11 @@ router.post('/', authenticate, async (req, res) => {
   try {
     const { error, value } = agentCreateSchema.validate(req.body);
     if (error) {
-      return res.status(400).json({ error: error.details[0].message });
+      return res.status(400).json({ 
+        success: false,
+        error: 'Validation error',
+        message: error.details[0].message 
+      });
     }
 
     const agentData = {
@@ -108,13 +122,25 @@ router.post('/', authenticate, async (req, res) => {
 
     if (insertError) {
       logger.error('Agent creation error:', insertError);
-      return res.status(500).json({ error: 'Failed to create agent' });
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to create agent',
+        message: insertError.message 
+      });
     }
 
-    res.status(201).json(agent);
+    res.status(201).json({
+      success: true,
+      agent,
+      message: 'Agent created successfully'
+    });
   } catch (error) {
     logger.error('Create agent error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 });
 
@@ -133,13 +159,23 @@ router.get('/:agentId', authenticate, checkOwnership('agent'), async (req, res) 
       .single();
 
     if (error || !agent) {
-      return res.status(404).json({ error: 'Agent not found' });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Agent not found' 
+      });
     }
 
-    res.json(agent);
+    res.json({
+      success: true,
+      agent
+    });
   } catch (error) {
     logger.error('Get agent error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 });
 
@@ -153,7 +189,11 @@ router.put('/:agentId', authenticate, checkOwnership('agent'), async (req, res) 
     const { error, value } = agentUpdateSchema.validate(req.body);
     
     if (error) {
-      return res.status(400).json({ error: error.details[0].message });
+      return res.status(400).json({ 
+        success: false,
+        error: 'Validation error',
+        message: error.details[0].message 
+      });
     }
 
     const { data: agent, error: updateError } = await supabase
@@ -165,13 +205,25 @@ router.put('/:agentId', authenticate, checkOwnership('agent'), async (req, res) 
 
     if (updateError) {
       logger.error('Agent update error:', updateError);
-      return res.status(500).json({ error: 'Failed to update agent' });
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to update agent',
+        message: updateError.message 
+      });
     }
 
-    res.json(agent);
+    res.json({
+      success: true,
+      agent,
+      message: 'Agent updated successfully'
+    });
   } catch (error) {
     logger.error('Update agent error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 });
 
@@ -193,13 +245,24 @@ router.delete('/:agentId', authenticate, checkOwnership('agent'), async (req, re
 
     if (error) {
       logger.error('Agent deletion error:', error);
-      return res.status(500).json({ error: 'Failed to delete agent' });
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to delete agent',
+        message: error.message 
+      });
     }
 
-    res.json({ message: 'Agent deleted successfully' });
+    res.json({ 
+      success: true,
+      message: 'Agent deleted successfully' 
+    });
   } catch (error) {
     logger.error('Delete agent error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 });
 
@@ -214,16 +277,24 @@ router.post('/:agentId/connect', authenticate, checkOwnership('agent'), async (r
     const result = await whatsappService.connect(agentId);
 
     if (result.error) {
-      return res.status(500).json({ error: result.error });
+      return res.status(500).json({ 
+        success: false,
+        error: result.error 
+      });
     }
 
     res.json({
+      success: true,
       qr_code: result.qrCode,
       status: 'connecting'
     });
   } catch (error) {
     logger.error('Connect agent error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 });
 
@@ -242,10 +313,14 @@ router.get('/:agentId/connection-status', authenticate, checkOwnership('agent'),
       .single();
 
     if (error || !agent) {
-      return res.status(404).json({ error: 'Agent not found' });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Agent not found' 
+      });
     }
 
     res.json({
+      success: true,
       status: agent.status,
       connected: agent.status === 'connected',
       phone_number: agent.phone_number,
@@ -253,7 +328,11 @@ router.get('/:agentId/connection-status', authenticate, checkOwnership('agent'),
     });
   } catch (error) {
     logger.error('Connection status error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 });
 
@@ -267,10 +346,17 @@ router.post('/:agentId/disconnect', authenticate, checkOwnership('agent'), async
 
     await whatsappService.disconnect(agentId);
 
-    res.json({ message: 'Disconnected successfully' });
+    res.json({ 
+      success: true,
+      message: 'Disconnected successfully' 
+    });
   } catch (error) {
     logger.error('Disconnect agent error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
   }
 });
 

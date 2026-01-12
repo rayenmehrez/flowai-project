@@ -20,8 +20,15 @@ async function generateQR(req, res) {
       .single();
 
     if (error || !agent) {
-      return res.status(404).json({ error: 'Agent not found or access denied' });
+      logger.warn('Agent not found for QR generation', { agentId, userId });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Agent not found',
+        message: 'Agent not found or access denied' 
+      });
     }
+
+    logger.info('Generating QR code', { agentId, userId });
 
     // Initialize client and generate QR
     const result = await whatsappService.initializeClient(agentId, userId);
@@ -35,7 +42,11 @@ async function generateQR(req, res) {
     });
   } catch (error) {
     logger.error('Generate QR error:', error);
-    res.status(500).json({ error: error.message || 'Failed to generate QR code' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to generate QR code',
+      message: error.message || 'Failed to generate QR code' 
+    });
   }
 }
 
@@ -57,7 +68,12 @@ async function checkConnectionStatus(req, res) {
       .single();
 
     if (error || !agent) {
-      return res.status(404).json({ error: 'Agent not found or access denied' });
+      logger.warn('Agent not found for connection status', { agentId, userId });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Agent not found',
+        message: 'Agent not found or access denied' 
+      });
     }
 
     const status = whatsappService.getConnectionStatus(agentId);
@@ -68,7 +84,11 @@ async function checkConnectionStatus(req, res) {
     });
   } catch (error) {
     logger.error('Check connection status error:', error);
-    res.status(500).json({ error: error.message || 'Failed to check status' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to check status',
+      message: error.message || 'Failed to check status' 
+    });
   }
 }
 
@@ -90,18 +110,28 @@ async function disconnect(req, res) {
       .single();
 
     if (error || !agent) {
-      return res.status(404).json({ error: 'Agent not found or access denied' });
+      logger.warn('Agent not found for disconnect', { agentId, userId });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Agent not found',
+        message: 'Agent not found or access denied' 
+      });
     }
 
+    logger.info('Disconnecting WhatsApp client', { agentId, userId });
     const result = await whatsappService.disconnectClient(agentId);
 
     res.json({
-      success: result.success,
+      success: result.success !== false,
       message: result.message || 'Disconnected successfully'
     });
   } catch (error) {
     logger.error('Disconnect error:', error);
-    res.status(500).json({ error: error.message || 'Failed to disconnect' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to disconnect',
+      message: error.message || 'Failed to disconnect' 
+    });
   }
 }
 
@@ -123,7 +153,12 @@ async function getQRStatus(req, res) {
       .single();
 
     if (error || !agent) {
-      return res.status(404).json({ error: 'Agent not found or access denied' });
+      logger.warn('Agent not found for QR status', { agentId, userId });
+      return res.status(404).json({ 
+        success: false,
+        error: 'Agent not found',
+        message: 'Agent not found or access denied' 
+      });
     }
 
     const qrStatus = whatsappService.getQRStatus(agentId);
@@ -134,7 +169,11 @@ async function getQRStatus(req, res) {
     });
   } catch (error) {
     logger.error('Get QR status error:', error);
-    res.status(500).json({ error: error.message || 'Failed to get QR status' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to get QR status',
+      message: error.message || 'Failed to get QR status' 
+    });
   }
 }
 
