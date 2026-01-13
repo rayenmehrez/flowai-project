@@ -10,17 +10,21 @@ router.get('/test', (req, res) => {
   res.json({ message: 'Auth routes are working!', timestamp: new Date().toISOString() });
 });
 
-// Validation schemas
+// Validation schemas - Flexible to support both old and new frontend formats
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(8).required(),
-  first_name: Joi.string().min(1).max(50).required(),
-  last_name: Joi.string().min(1).max(50).required(),
-  username: Joi.string().min(3).max(30).pattern(/^[a-zA-Z0-9_]+$/).optional(),
-  company_name: Joi.string().min(2).max(100).optional().allow(''),
-  phone_number: Joi.string().max(20).optional().allow(''),
-  // Legacy field - kept for backward compatibility
-  full_name: Joi.string().min(2).optional()
+  // New fields (optional to support legacy frontend)
+  first_name: Joi.string().min(1).max(50).optional(),
+  last_name: Joi.string().min(1).max(50).optional(),
+  username: Joi.string().min(3).max(30).pattern(/^[a-zA-Z0-9_]+$/).optional().allow(''),
+  // Legacy fields for backward compatibility
+  full_name: Joi.string().min(2).optional(),
+  name: Joi.string().min(2).optional(), // Some frontends use 'name'
+  // Optional fields
+  company_name: Joi.string().max(100).optional().allow('', null),
+  phone_number: Joi.string().max(20).optional().allow('', null),
+  phone: Joi.string().max(20).optional().allow('', null) // Alternative field name
 });
 
 const loginSchema = Joi.object({
@@ -43,11 +47,19 @@ const profileUpdateSchema = Joi.object({
 /**
  * POST /api/auth/register
  * Register a new user
+ * Supports both new format (first_name, last_name) and legacy format (full_name, name)
  */
 router.post('/register', async (req, res) => {
   try {
+    // Log incoming request for debugging
+    logger.info('Register request received:', { 
+      fields: Object.keys(req.body),
+      email: req.body.email 
+    });
+
     const { error, value } = registerSchema.validate(req.body);
     if (error) {
+      logger.warn('Validation error:', error.details[0].message);
       return res.status(400).json({ 
         success: false,
         error: 'Validation error',
@@ -58,19 +70,53 @@ router.post('/register', async (req, res) => {
     const { 
       email, 
       password, 
-      first_name, 
-      last_name, 
+      first_name: providedFirstName, 
+      last_name: providedLastName, 
       username,
       company_name, 
       phone_number,
-      full_name: legacyFullName 
+      phone,
+      full_name: providedFullName,
+      name: providedName
     } = value;
 
-    // Compute full_name from first_name and last_name
-    const full_name = legacyFullName || `${first_name} ${last_name}`.trim();
+    // Flexible name handling - support multiple input formats
+    let first_name = providedFirstName;
+    let last_name = providedLastName;
+    let full_name = providedFullName || providedName;
+
+    // If we have full_name or name but not first/last, split it
+    if (!first_name && !last_name && full_name) {
+      const nameParts = full_name.trim().split(' ');
+      first_name = nameParts[0] || 'User';
+      last_name = nameParts.slice(1).join(' ') || '';
+    }
+
+    // If we still don't have names, use email prefix
+    if (!first_name) {
+      first_name = email.split('@')[0] || 'User';
+    }
+    if (!last_name) {
+      last_name = '';
+    }
+
+    // Compute full_name if not provided
+    if (!full_name) {
+      full_name = `${first_name} ${last_name}`.trim();
+    }
+    
+    // Handle phone number (support both field names)
+    const finalPhoneNumber = phone_number || phone || null;
     
     // Generate username if not provided
-    const generatedUsername = username || `${first_name.toLowerCase()}_${Date.now().toString(36)}`;
+    const generatedUsername = username || `${first_name.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now().toString(36)}`;
+
+    logger.info('Processed registration data:', { 
+      email, 
+      first_name, 
+      last_name, 
+      username: generatedUsername 
+    });
 
     // Use Supabase Admin API to create user (required when using service role key)
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -82,8 +128,8 @@ router.post('/register', async (req, res) => {
         last_name,
         full_name,
         username: generatedUsername,
-        company_name,
-        phone_number
+        company_name: company_name || null,
+        phone_number: finalPhoneNumber
       }
     });
 
@@ -102,27 +148,42 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Create user profile with all fields
-    const { error: profileError } = await supabase
+    // Create user profile - try with all fields first, fallback to basic fields
+    let profileError = null;
+    
+    // Try with extended fields first
+    const extendedProfile = {
+      id: authData.user.id,
+      email,
+      first_name,
+      last_name,
+      username: generatedUsername,
+      full_name,
+      company_name: company_name || null,
+      phone_number: finalPhoneNumber
+    };
+
+    const { error: extendedError } = await supabase
       .from('user_profiles')
-      .insert({
+      .insert(extendedProfile);
+
+    if (extendedError) {
+      logger.warn('Extended profile creation failed, trying basic profile:', extendedError.message);
+      
+      // Fallback to basic profile (for databases without new columns)
+      const basicProfile = {
         id: authData.user.id,
-        email,
-        first_name,
-        last_name,
-        username: generatedUsername,
         full_name,
         company_name: company_name || null,
-        phone_number: phone_number || null,
-        // Default values for new users
-        subscription_tier: 'free',
-        subscription_status: 'active',
-        credits_balance: 100,
-        api_quota_limit: 10000,
-        max_agents: 1,
-        max_messages_per_day: 100,
-        max_knowledge_items: 10
-      });
+        phone_number: finalPhoneNumber
+      };
+
+      const { error: basicError } = await supabase
+        .from('user_profiles')
+        .insert(basicProfile);
+
+      profileError = basicError;
+    }
 
     if (profileError) {
       logger.error('Profile creation error:', profileError);
