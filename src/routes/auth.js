@@ -14,8 +14,13 @@ router.get('/test', (req, res) => {
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(8).required(),
-  full_name: Joi.string().min(2).required(),
-  company_name: Joi.string().min(2).required()
+  first_name: Joi.string().min(1).max(50).required(),
+  last_name: Joi.string().min(1).max(50).required(),
+  username: Joi.string().min(3).max(30).pattern(/^[a-zA-Z0-9_]+$/).optional(),
+  company_name: Joi.string().min(2).max(100).optional().allow(''),
+  phone_number: Joi.string().max(20).optional().allow(''),
+  // Legacy field - kept for backward compatibility
+  full_name: Joi.string().min(2).optional()
 });
 
 const loginSchema = Joi.object({
@@ -24,9 +29,15 @@ const loginSchema = Joi.object({
 });
 
 const profileUpdateSchema = Joi.object({
+  first_name: Joi.string().min(1).max(50).optional(),
+  last_name: Joi.string().min(1).max(50).optional(),
+  username: Joi.string().min(3).max(30).pattern(/^[a-zA-Z0-9_]+$/).optional(),
   full_name: Joi.string().min(2).optional(),
-  company_name: Joi.string().min(2).optional(),
-  phone_number: Joi.string().optional().allow('')
+  company_name: Joi.string().min(2).max(100).optional().allow(''),
+  phone_number: Joi.string().max(20).optional().allow(''),
+  avatar_url: Joi.string().uri().optional().allow(''),
+  timezone: Joi.string().optional(),
+  language: Joi.string().valid('en', 'es', 'fr', 'ar', 'pt', 'de', 'it', 'zh').optional()
 });
 
 /**
@@ -37,10 +48,29 @@ router.post('/register', async (req, res) => {
   try {
     const { error, value } = registerSchema.validate(req.body);
     if (error) {
-      return res.status(400).json({ error: error.details[0].message });
+      return res.status(400).json({ 
+        success: false,
+        error: 'Validation error',
+        message: error.details[0].message 
+      });
     }
 
-    const { email, password, full_name, company_name } = value;
+    const { 
+      email, 
+      password, 
+      first_name, 
+      last_name, 
+      username,
+      company_name, 
+      phone_number,
+      full_name: legacyFullName 
+    } = value;
+
+    // Compute full_name from first_name and last_name
+    const full_name = legacyFullName || `${first_name} ${last_name}`.trim();
+    
+    // Generate username if not provided
+    const generatedUsername = username || `${first_name.toLowerCase()}_${Date.now().toString(36)}`;
 
     // Use Supabase Admin API to create user (required when using service role key)
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
@@ -48,27 +78,50 @@ router.post('/register', async (req, res) => {
       password,
       email_confirm: true, // Auto-confirm email
       user_metadata: {
+        first_name,
+        last_name,
         full_name,
-        company_name
+        username: generatedUsername,
+        company_name,
+        phone_number
       }
     });
 
     if (authError) {
       logger.error('Registration error:', authError);
-      return res.status(400).json({ error: authError.message || 'Failed to create user' });
+      return res.status(400).json({ 
+        success: false,
+        error: authError.message || 'Failed to create user' 
+      });
     }
 
     if (!authData || !authData.user) {
-      return res.status(500).json({ error: 'User creation failed - no user data returned' });
+      return res.status(500).json({ 
+        success: false,
+        error: 'User creation failed - no user data returned' 
+      });
     }
 
-    // Create user profile
+    // Create user profile with all fields
     const { error: profileError } = await supabase
       .from('user_profiles')
       .insert({
         id: authData.user.id,
+        email,
+        first_name,
+        last_name,
+        username: generatedUsername,
         full_name,
-        company_name
+        company_name: company_name || null,
+        phone_number: phone_number || null,
+        // Default values for new users
+        subscription_tier: 'free',
+        subscription_status: 'active',
+        credits_balance: 100,
+        api_quota_limit: 10000,
+        max_agents: 1,
+        max_messages_per_day: 100,
+        max_knowledge_items: 10
       });
 
     if (profileError) {
@@ -79,28 +132,35 @@ router.post('/register', async (req, res) => {
       } catch (deleteError) {
         logger.error('Failed to delete user after profile creation error:', deleteError);
       }
-      return res.status(500).json({ error: 'Failed to create user profile: ' + profileError.message });
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to create user profile: ' + profileError.message 
+      });
     }
 
     // Generate session token using admin API
-    // Note: admin.createSession might not be available in all Supabase versions
-    // Alternative: use signInWithPassword with anon client or return user and let frontend login
     try {
-      // Try to create session using admin API
       const { data: sessionData, error: sessionError } = await supabase.auth.admin.createSession({
         user_id: authData.user.id
       });
 
       if (!sessionError && sessionData) {
-        // Session created successfully
         return res.status(201).json({
+          success: true,
           user: {
             id: authData.user.id,
             email: authData.user.email,
+            first_name,
+            last_name,
+            username: generatedUsername,
             full_name,
-            company_name
+            company_name,
+            phone_number,
+            subscription_tier: 'free',
+            credits_balance: 100
           },
-          session: sessionData.session || sessionData
+          session: sessionData.session || sessionData,
+          message: 'Account created successfully'
         });
       }
     } catch (sessionErr) {
@@ -109,17 +169,27 @@ router.post('/register', async (req, res) => {
 
     // If session creation fails, return user data - frontend can login separately
     res.status(201).json({
+      success: true,
       user: {
         id: authData.user.id,
         email: authData.user.email,
+        first_name,
+        last_name,
+        username: generatedUsername,
         full_name,
-        company_name
+        company_name,
+        phone_number,
+        subscription_tier: 'free',
+        credits_balance: 100
       },
-      message: 'User created successfully. Please login to get session token.'
+      message: 'Account created successfully. Please login.'
     });
   } catch (error) {
     logger.error('Register error:', error);
-    res.status(500).json({ error: 'Internal server error: ' + error.message });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error: ' + error.message 
+    });
   }
 });
 
