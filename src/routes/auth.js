@@ -252,6 +252,132 @@ router.get('/me', authenticate, async (req, res) => {
 });
 
 /**
+ * POST /api/auth/google
+ * Initiate Google OAuth flow
+ * Returns the URL to redirect user to Google for authentication
+ */
+router.post('/google', async (req, res) => {
+  try {
+    const redirectUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/auth/callback`;
+    
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent'
+        }
+      }
+    });
+
+    if (error) {
+      logger.error('Google OAuth error:', error);
+      return res.status(400).json({ 
+        success: false,
+        error: 'Failed to initiate Google sign-in',
+        message: error.message 
+      });
+    }
+
+    res.json({
+      success: true,
+      url: data.url
+    });
+  } catch (error) {
+    logger.error('Google OAuth error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
+  }
+});
+
+/**
+ * POST /api/auth/google/callback
+ * Handle Google OAuth callback - exchange code for session
+ */
+router.post('/google/callback', async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    if (!code) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Authorization code is required' 
+      });
+    }
+
+    // Exchange code for session
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (error) {
+      logger.error('Google OAuth callback error:', error);
+      return res.status(400).json({ 
+        success: false,
+        error: 'Failed to complete Google sign-in',
+        message: error.message 
+      });
+    }
+
+    const { user, session } = data;
+
+    // Check if user profile exists, if not create one
+    const { data: existingProfile, error: profileFetchError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (profileFetchError && profileFetchError.code === 'PGRST116') {
+      // Profile doesn't exist, create one from Google user metadata
+      const fullName = user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'User';
+      const companyName = user.user_metadata?.company_name || 'My Company';
+
+      const { error: profileError } = await supabase
+        .from('user_profiles')
+        .insert({
+          id: user.id,
+          full_name: fullName,
+          company_name: companyName
+        });
+
+      if (profileError) {
+        logger.error('Profile creation error for Google user:', profileError);
+        // Don't fail the login, just log the error
+      }
+
+      logger.info('Created profile for Google user:', { userId: user.id, email: user.email });
+    }
+
+    // Fetch the profile (newly created or existing)
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        email: user.email,
+        ...profile
+      },
+      session: session
+    });
+  } catch (error) {
+    logger.error('Google OAuth callback error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
+  }
+});
+
+/**
  * PUT /api/auth/profile
  * Update user profile
  */
