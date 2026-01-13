@@ -121,21 +121,55 @@ try {
   app.use('/api/whatsapp', require('./routes/whatsapp.routes'));
   logger.info('✓ WhatsApp routes loaded at /api/whatsapp');
   
+  // Load user routes
+  app.use('/api', require('./routes/user.routes'));
+  logger.info('✓ User routes loaded at /api/user');
+  
+  // Load analytics routes
+  app.use('/api/analytics', require('./routes/analytics'));
+  logger.info('✓ Analytics routes loaded at /api/analytics');
+  
   // Log all registered routes for debugging
   logger.info('═══════════════════════════════════════');
   logger.info('✅ All routes registered successfully');
   logger.info('═══════════════════════════════════════');
   logger.info('');
   logger.info('Available endpoints:');
+  logger.info('');
+  logger.info('  Public:');
   logger.info('  GET    /health');
+  logger.info('  GET    /');
+  logger.info('');
+  logger.info('  Auth:');
+  logger.info('  POST   /api/auth/register');
+  logger.info('  POST   /api/auth/login');
+  logger.info('  POST   /api/auth/logout');
+  logger.info('  GET    /api/auth/me');
+  logger.info('  POST   /api/auth/google');
+  logger.info('');
+  logger.info('  Agents:');
   logger.info('  GET    /api/agents');
   logger.info('  POST   /api/agents');
   logger.info('  GET    /api/agents/:id');
   logger.info('  PUT    /api/agents/:id');
   logger.info('  DELETE /api/agents/:id');
+  logger.info('');
+  logger.info('  WhatsApp:');
   logger.info('  POST   /api/whatsapp/generate-qr/:agentId');
   logger.info('  GET    /api/whatsapp/connection-status/:agentId');
   logger.info('  POST   /api/whatsapp/disconnect/:agentId');
+  logger.info('  GET    /api/whatsapp/qr-status/:agentId');
+  logger.info('');
+  logger.info('  User:');
+  logger.info('  GET    /api/user/profile');
+  logger.info('  PUT    /api/user/profile');
+  logger.info('  GET    /api/user/credits');
+  logger.info('  POST   /api/user/credits/purchase');
+  logger.info('  GET    /api/user/stats');
+  logger.info('  GET    /api/user/usage');
+  logger.info('');
+  logger.info('  Dashboard:');
+  logger.info('  GET    /api/dashboard/overview');
   logger.info('');
 } catch (error) {
   logger.error('❌ Error loading routes:', error);
@@ -158,11 +192,15 @@ app.get('/', (req, res) => {
   res.json({
     message: 'FlowAI Backend API',
     version: '1.0.0',
+    status: 'running',
     endpoints: {
       health: '/health',
+      auth: '/api/auth',
       agents: '/api/agents',
       whatsapp: '/api/whatsapp',
-      auth: '/api/auth'
+      user: '/api/user',
+      dashboard: '/api/dashboard',
+      analytics: '/api/analytics'
     }
   });
 });
