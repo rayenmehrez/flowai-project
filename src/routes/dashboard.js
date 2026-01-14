@@ -1,16 +1,33 @@
 const express = require('express');
 const router = express.Router();
 const { supabase } = require('../config/supabase');
-const { authenticate } = require('../middleware/auth');
+const { authenticateOptional } = require('../middleware/auth');
 const logger = require('../utils/logger');
 
 /**
  * GET /api/dashboard/overview
  * Get dashboard overview for all user's agents
+ * - Uses optional authentication:
+ *   - If user is authenticated → returns real stats
+ *   - If not authenticated    → returns empty/default stats (never 401)
  */
-router.get('/overview', authenticate, async (req, res) => {
+router.get('/overview', authenticateOptional, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id;
+
+    // If no authenticated user, return empty/default dashboard instead of 401
+    if (!userId) {
+      logger.info('Dashboard overview requested without authenticated user, returning default data');
+      return res.json({
+        agents: [],
+        totals: {
+          total_agents: 0,
+          total_messages_today: 0,
+          active_conversations: 0,
+        },
+        recent_activity: [],
+      });
+    }
 
     // Get all agents
     const { data: agents, error: agentsError } = await supabase
