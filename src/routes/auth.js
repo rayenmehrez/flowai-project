@@ -423,18 +423,117 @@ router.get('/me', authenticate, async (req, res) => {
       .single();
 
     if (error) {
+      // If profile doesn't exist, return user data without profile
+      if (error.code === 'PGRST116') {
+        logger.info('Profile not found for user, returning basic user data:', { userId: req.user.id });
+        return res.json({
+          success: true,
+          id: req.user.id,
+          email: req.user.email,
+          ...(req.user.user_metadata || {})
+        });
+      }
+      
       logger.error('Profile fetch error:', error);
-      return res.status(500).json({ error: 'Failed to fetch profile' });
+      return res.status(500).json({ 
+        success: false,
+        error: 'Failed to fetch profile',
+        message: error.message 
+      });
     }
 
     res.json({
+      success: true,
       id: req.user.id,
       email: req.user.email,
       ...profile
     });
   } catch (error) {
     logger.error('Get me error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ 
+      success: false,
+      error: 'Internal server error',
+      message: error.message 
+    });
+  }
+});
+
+/**
+ * GET /api/auth/profile
+ * Get current user profile (alternative endpoint)
+ * Can be called with session token from login response
+ */
+router.get('/profile', async (req, res) => {
+  try {
+    // Get token from Authorization header or query parameter
+    let token = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+    } else if (req.query.token) {
+      token = req.query.token;
+    }
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        message: 'No authentication token provided'
+      });
+    }
+
+    // Validate token and get user
+    const { data: { user }, error: tokenError } = await supabase.auth.getUser(token);
+    
+    if (tokenError || !user) {
+      logger.warn('Invalid token for profile request:', { error: tokenError?.message });
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        message: 'Invalid or expired token'
+      });
+    }
+
+    // Get user profile
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError) {
+      // If profile doesn't exist, return user data without profile
+      if (profileError.code === 'PGRST116') {
+        logger.info('Profile not found for user, returning basic user data:', { userId: user.id });
+        return res.json({
+          success: true,
+          id: user.id,
+          email: user.email,
+          ...(user.user_metadata || {})
+        });
+      }
+      
+      logger.error('Profile fetch error:', profileError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to fetch profile',
+        message: profileError.message
+      });
+    }
+
+    res.json({
+      success: true,
+      id: user.id,
+      email: user.email,
+      ...profile
+    });
+  } catch (error) {
+    logger.error('Get profile error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: error.message
+    });
   }
 });
 
