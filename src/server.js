@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 const logger = require('./utils/logger');
 
 const app = express();
@@ -73,6 +74,7 @@ app.use(helmet({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(cookieParser()); // Parse cookies from requests
 
 // Rate limiting - Configured for proxy (Render.com)
 const limiter = rateLimit({
@@ -146,6 +148,7 @@ try {
   logger.info('  POST   /api/auth/logout');
   logger.info('  GET    /api/auth/me');
   logger.info('  GET    /api/auth/session');
+  logger.info('  POST   /api/auth/set-cookie');
   logger.info('  POST   /api/auth/google');
   logger.info('');
   logger.info('  Agents:');

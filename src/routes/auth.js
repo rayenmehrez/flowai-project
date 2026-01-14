@@ -385,99 +385,140 @@ router.get('/me', authenticate, async (req, res) => {
 /**
  * GET /api/auth/session
  * Get current user session and profile
- * - Returns user data with session info
- * - Works with both required and optional authentication
- * - Used by Next.js dashboard to load user session
+ * - Reads auth token from cookie "auth-token" OR Authorization header
+ * - Validates token against database using SQL function
+ * - Returns user object with id, email, name
+ * - Returns 401 if no token or invalid token
+ * - Returns 500 if database error
  */
-router.get('/session', authenticateOptional, async (req, res) => {
+router.get('/session', async (req, res) => {
   try {
-    // If no authenticated user, return 401
-    if (!req.user || !req.user.id) {
-      logger.warn('Session endpoint called without authenticated user');
+    // Get token from cookie first, then fallback to Authorization header
+    let token = req.cookies?.['auth-token'] || req.cookies?.authToken;
+    
+    // Fallback to Authorization header if no cookie
+    if (!token) {
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+      }
+    }
+    
+    logger.info('Session endpoint called', {
+      hasCookie: !!req.cookies,
+      cookieNames: req.cookies ? Object.keys(req.cookies) : [],
+      hasToken: !!token,
+      tokenLength: token ? token.length : 0,
+      hasAuthHeader: !!req.headers.authorization
+    });
+
+    // Check if token exists
+    if (!token) {
+      logger.warn('Session endpoint called without auth-token cookie or Authorization header');
       return res.status(401).json({
         success: false,
         error: 'Unauthorized',
-        message: 'No active session. Please log in.',
-        session: null,
+        message: 'No authentication token provided. Please log in.',
         user: null
       });
     }
 
-    const userId = req.user.id;
-
-    logger.info('Fetching session for user:', { userId });
-
-    // Get user profile from database
-    const { data: profile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (profileError) {
-      logger.error('Profile fetch error in session endpoint:', profileError);
+    // Validate token with Supabase to get user ID
+    let userId;
+    let userEmail;
+    
+    try {
+      const { data: { user }, error: tokenError } = await supabase.auth.getUser(token);
       
-      // If profile doesn't exist, return user data without profile
-      if (profileError.code === 'PGRST116') {
-        logger.warn('Profile not found for user, returning basic user data');
-        return res.json({
-          success: true,
-          session: {
-            authenticated: true,
-            userId: req.user.id,
-            email: req.user.email
-          },
-          user: {
-            id: req.user.id,
-            email: req.user.email,
-            ...req.user.user_metadata
-          },
-          profile: null,
-          message: 'Profile not found, using basic user data'
+      if (tokenError || !user) {
+        logger.warn('Token validation failed', {
+          error: tokenError?.message,
+          hasUser: !!user
+        });
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized',
+          message: 'Invalid or expired authentication token. Please log in again.',
+          user: null
         });
       }
 
-      // Other database errors
-      return res.status(500).json({
+      userId = user.id;
+      userEmail = user.email;
+      
+      logger.info('Token validated successfully', { userId, email: userEmail });
+    } catch (tokenValidationError) {
+      logger.error('Token validation error:', tokenValidationError);
+      return res.status(401).json({
         success: false,
-        error: 'Database error',
-        message: 'Failed to fetch user profile',
-        session: {
-          authenticated: true,
-          userId: req.user.id
-        },
-        user: {
-          id: req.user.id,
-          email: req.user.email
-        }
+        error: 'Unauthorized',
+        message: 'Failed to validate authentication token.',
+        user: null
       });
     }
 
-    // Success - return complete session data
-    logger.info('Session retrieved successfully', { userId, hasProfile: !!profile });
+    // Validate token and get user from database using SQL function
+    try {
+      const { data: userData, error: dbError } = await supabase.rpc('validate_token_and_get_user', {
+        p_user_id: userId
+      });
 
-    res.json({
-      success: true,
-      session: {
-        authenticated: true,
-        userId: req.user.id,
-        email: req.user.email,
-        expiresAt: null // JWT tokens don't have explicit expiration in this format
-      },
-      user: {
-        id: req.user.id,
-        email: req.user.email,
-        ...req.user.user_metadata
-      },
-      profile: profile || null
-    });
+      if (dbError) {
+        logger.error('Database function error:', dbError);
+        return res.status(500).json({
+          success: false,
+          error: 'Database error',
+          message: 'Failed to validate user session. Please try again later.',
+          user: null
+        });
+      }
+
+      if (!userData) {
+        logger.warn('User not found in database', { userId });
+        return res.status(401).json({
+          success: false,
+          error: 'Unauthorized',
+          message: 'User not found. Please log in again.',
+          user: null
+        });
+      }
+
+      // Success - return user data
+      logger.info('Session retrieved successfully', {
+        userId: userData.id,
+        email: userData.email,
+        hasProfile: userData.profile_exists
+      });
+
+      res.json({
+        success: true,
+        user: {
+          id: userData.id,
+          email: userData.email || userEmail,
+          name: userData.name || userData.email || 'User',
+          first_name: userData.first_name || null,
+          last_name: userData.last_name || null,
+          username: userData.username || null
+        }
+      });
+
+    } catch (dbFunctionError) {
+      logger.error('Database function execution error:', dbFunctionError);
+      return res.status(500).json({
+        success: false,
+        error: 'Database error',
+        message: 'Failed to retrieve user data. Please try again later.',
+        user: null
+      });
+    }
 
   } catch (error) {
     logger.error('Session endpoint error:', error);
     res.status(500).json({
       success: false,
       error: 'Internal server error',
-      message: 'Failed to load user session',
+      message: 'An unexpected error occurred. Please try again later.',
+      user: null,
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
