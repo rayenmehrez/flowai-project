@@ -135,9 +135,38 @@ router.post('/register', async (req, res) => {
 
     if (authError) {
       logger.error('Registration error:', authError);
-      return res.status(400).json({ 
+      
+      // Handle specific Supabase errors
+      let statusCode = 400;
+      let errorMessage = authError.message || 'Failed to create user';
+      
+      // User already exists
+      if (authError.message?.includes('already registered') || 
+          authError.message?.includes('already been registered') ||
+          authError.message?.includes('User already registered') ||
+          authError.status === 422) {
+        statusCode = 422;
+        errorMessage = 'This email address is already registered. Please try logging in instead.';
+      }
+      
+      // Invalid email
+      if (authError.message?.includes('Invalid email') || 
+          authError.message?.includes('email address')) {
+        statusCode = 400;
+        errorMessage = 'Please enter a valid email address.';
+      }
+      
+      // Password too weak
+      if (authError.message?.includes('Password') || 
+          authError.message?.includes('password')) {
+        statusCode = 400;
+        errorMessage = 'Password must be at least 8 characters long.';
+      }
+      
+      return res.status(statusCode).json({ 
         success: false,
-        error: authError.message || 'Failed to create user' 
+        error: errorMessage,
+        code: authError.status || 'REGISTRATION_ERROR'
       });
     }
 
