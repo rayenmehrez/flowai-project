@@ -303,25 +303,52 @@ router.post('/login', async (req, res) => {
 
     if (loginError) {
       logger.warn('Login failed:', { email, error: loginError.message });
-      return res.status(401).json({ error: 'Invalid email or password' });
+      return res.status(401).json({ 
+        success: false,
+        error: 'Invalid email or password' 
+      });
     }
 
-    // Get user profile
-    const { data: profile, error: profileError } = await supabase
+    if (!data || !data.user || !data.session) {
+      logger.error('Login succeeded but no user/session data returned');
+      return res.status(500).json({ 
+        success: false,
+        error: 'Internal server error: Invalid response from authentication service' 
+      });
+    }
+
+    // Get user profile - handle errors gracefully
+    let profile = null;
+    const { data: profileData, error: profileError } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('id', data.user.id)
       .single();
 
     if (profileError) {
-      logger.error('Profile fetch error:', profileError);
+      // If profile doesn't exist (PGRST116), that's okay - user can create it later
+      if (profileError.code === 'PGRST116') {
+        logger.info('Profile not found for user, continuing without profile:', { userId: data.user.id });
+      } else {
+        // Log other errors but don't fail the login
+        logger.error('Profile fetch error (non-critical):', { 
+          userId: data.user.id,
+          error: profileError.message,
+          code: profileError.code 
+        });
+      }
+    } else {
+      profile = profileData;
     }
 
+    // Return user data with or without profile
     res.json({
+      success: true,
       user: {
         id: data.user.id,
         email: data.user.email,
-        ...profile
+        ...(profile || {}),
+        ...(data.user.user_metadata || {})
       },
       session: data.session
     });
