@@ -2,7 +2,7 @@ const { supabase } = require('../config/supabase');
 const logger = require('../utils/logger');
 
 /**
- * Middleware to authenticate requests using Supabase JWT token
+ * Middleware to authenticate requests using Supabase JWT token (required)
  */
 const authenticate = async (req, res, next) => {
   try {
@@ -68,6 +68,58 @@ const authenticate = async (req, res, next) => {
       error: 'Internal server error',
       message: 'Authentication failed' 
     });
+  }
+};
+
+/**
+ * Middleware to authenticate requests using Supabase JWT token (optional)
+ * - If token is valid, attaches req.user
+ * - If token is missing/invalid, DOES NOT return 401, simply continues without user
+ *   (useful for routes like dashboard overview where we can show default/empty data)
+ */
+const authenticateOptional = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    logger.info('Optional auth check:', {
+      path: req.path,
+      method: req.method,
+      hasAuthHeader: !!authHeader,
+    });
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // No token provided, continue without user
+      req.user = null;
+      return next();
+    }
+
+    const token = authHeader.substring(7);
+
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      logger.warn('Optional token verification failed', {
+        error: error?.message,
+        path: req.path,
+      });
+      req.user = null;
+      return next();
+    }
+
+    // Attach user to request
+    req.user = {
+      id: user.id,
+      email: user.email,
+      ...user.user_metadata,
+    };
+
+    logger.info('Optional auth succeeded', { userId: user.id, path: req.path });
+    next();
+  } catch (error) {
+    logger.error('Optional authentication middleware error:', error);
+    // On error, continue without user
+    req.user = null;
+    next();
   }
 };
 
@@ -144,5 +196,6 @@ const checkOwnership = (resourceType) => {
 
 module.exports = {
   authenticate,
+  authenticateOptional,
   checkOwnership
 };
