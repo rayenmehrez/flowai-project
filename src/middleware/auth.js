@@ -28,22 +28,37 @@ const authenticate = async (req, res, next) => {
     logger.debug('Token extracted', { tokenLength: token.length });
 
     // Verify token with Supabase
+    logger.debug('Verifying token with Supabase...', { 
+      tokenLength: token.length,
+      tokenPrefix: token.substring(0, 20) + '...'
+    });
+    
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
     if (error) {
       logger.warn('Token verification error', { 
         error: error.message,
-        path: req.path 
+        errorCode: error.status,
+        errorName: error.name,
+        path: req.path,
+        tokenLength: token.length
       });
       return res.status(401).json({ 
         success: false,
         error: 'Unauthorized',
-        message: 'Invalid or expired token' 
+        message: error.message || 'Invalid or expired token',
+        details: process.env.NODE_ENV === 'development' ? {
+          errorCode: error.status,
+          errorName: error.name
+        } : undefined
       });
     }
 
     if (!user) {
-      logger.warn('No user found with token', { path: req.path });
+      logger.warn('No user found with token', { 
+        path: req.path,
+        tokenLength: token.length
+      });
       return res.status(401).json({ 
         success: false,
         error: 'Unauthorized',
@@ -95,12 +110,20 @@ const authenticateOptional = async (req, res, next) => {
 
     const token = authHeader.substring(7);
 
+    logger.debug('Optional auth: Verifying token...', {
+      tokenLength: token.length,
+      path: req.path
+    });
+
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
       logger.warn('Optional token verification failed', {
         error: error?.message,
+        errorCode: error?.status,
+        errorName: error?.name,
         path: req.path,
+        tokenLength: token.length
       });
       req.user = null;
       return next();
