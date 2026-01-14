@@ -145,6 +145,7 @@ try {
   logger.info('  POST   /api/auth/login');
   logger.info('  POST   /api/auth/logout');
   logger.info('  GET    /api/auth/me');
+  logger.info('  GET    /api/auth/session');
   logger.info('  POST   /api/auth/google');
   logger.info('');
   logger.info('  Agents:');

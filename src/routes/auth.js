@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { supabase, supabaseAnon } = require('../config/supabase');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, authenticateOptional } = require('../middleware/auth');
 const logger = require('../utils/logger');
 const Joi = require('joi');
 
@@ -379,6 +379,207 @@ router.get('/me', authenticate, async (req, res) => {
   } catch (error) {
     logger.error('Get me error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * GET /api/auth/session
+ * Get current user session and profile
+ * - Returns user data with session info
+ * - Works with both required and optional authentication
+ * - Used by Next.js dashboard to load user session
+ */
+router.get('/session', authenticateOptional, async (req, res) => {
+  try {
+    // If no authenticated user, return 401
+    if (!req.user || !req.user.id) {
+      logger.warn('Session endpoint called without authenticated user');
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        message: 'No active session. Please log in.',
+        session: null,
+        user: null
+      });
+    }
+
+    const userId = req.user.id;
+
+    logger.info('Fetching session for user:', { userId });
+
+    // Get user profile from database
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) {
+      logger.error('Profile fetch error in session endpoint:', profileError);
+      
+      // If profile doesn't exist, return user data without profile
+      if (profileError.code === 'PGRST116') {
+        logger.warn('Profile not found for user, returning basic user data');
+        return res.json({
+          success: true,
+          session: {
+            authenticated: true,
+            userId: req.user.id,
+            email: req.user.email
+          },
+          user: {
+            id: req.user.id,
+            email: req.user.email,
+            ...req.user.user_metadata
+          },
+          profile: null,
+          message: 'Profile not found, using basic user data'
+        });
+      }
+
+      // Other database errors
+      return res.status(500).json({
+        success: false,
+        error: 'Database error',
+        message: 'Failed to fetch user profile',
+        session: {
+          authenticated: true,
+          userId: req.user.id
+        },
+        user: {
+          id: req.user.id,
+          email: req.user.email
+        }
+      });
+    }
+
+    // Success - return complete session data
+    logger.info('Session retrieved successfully', { userId, hasProfile: !!profile });
+
+    res.json({
+      success: true,
+      session: {
+        authenticated: true,
+        userId: req.user.id,
+        email: req.user.email,
+        expiresAt: null // JWT tokens don't have explicit expiration in this format
+      },
+      user: {
+        id: req.user.id,
+        email: req.user.email,
+        ...req.user.user_metadata
+      },
+      profile: profile || null
+    });
+
+  } catch (error) {
+    logger.error('Session endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: 'Failed to load user session',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+/**
+ * GET /api/auth/session
+ * Get current user session and profile
+ * - Returns user data with session info
+ * - Works with optional authentication (returns 401 if no user)
+ * - Used by Next.js dashboard to load user session
+ */
+router.get('/session', authenticateOptional, async (req, res) => {
+  try {
+    // If no authenticated user, return 401
+    if (!req.user || !req.user.id) {
+      logger.warn('Session endpoint called without authenticated user');
+      return res.status(401).json({
+        success: false,
+        error: 'Unauthorized',
+        message: 'No active session. Please log in.',
+        session: null,
+        user: null
+      });
+    }
+
+    const userId = req.user.id;
+
+    logger.info('Fetching session for user:', { userId });
+
+    // Get user profile from database
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+
+    if (profileError) {
+      logger.error('Profile fetch error in session endpoint:', profileError);
+      
+      // If profile doesn't exist, return user data without profile
+      if (profileError.code === 'PGRST116') {
+        logger.warn('Profile not found for user, returning basic user data');
+        return res.json({
+          success: true,
+          session: {
+            authenticated: true,
+            userId: req.user.id,
+            email: req.user.email
+          },
+          user: {
+            id: req.user.id,
+            email: req.user.email,
+            ...req.user.user_metadata
+          },
+          profile: null,
+          message: 'Profile not found, using basic user data'
+        });
+      }
+
+      // Other database errors
+      return res.status(500).json({
+        success: false,
+        error: 'Database error',
+        message: 'Failed to fetch user profile',
+        session: {
+          authenticated: true,
+          userId: req.user.id
+        },
+        user: {
+          id: req.user.id,
+          email: req.user.email
+        }
+      });
+    }
+
+    // Success - return complete session data
+    logger.info('Session retrieved successfully', { userId, hasProfile: !!profile });
+
+    res.json({
+      success: true,
+      session: {
+        authenticated: true,
+        userId: req.user.id,
+        email: req.user.email
+      },
+      user: {
+        id: req.user.id,
+        email: req.user.email,
+        ...req.user.user_metadata
+      },
+      profile: profile || null
+    });
+
+  } catch (error) {
+    logger.error('Session endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: 'Failed to load user session',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
