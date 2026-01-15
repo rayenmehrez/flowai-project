@@ -35,30 +35,18 @@ router.get('/user/profile', authenticate, async (req, res) => {
       .single();
 
     if (error) {
-      // If profile doesn't exist (PGRST116), return 404 with helpful message
-      if (error.code === 'PGRST116') {
-        logger.info('Profile not found for user:', { userId });
-        return res.status(404).json({
-          success: false,
-          error: 'Profile not found',
-          message: 'User profile does not exist. Please complete your profile setup.'
-        });
-      }
-      
       logger.error('Profile fetch error:', error);
       return res.status(500).json({
         success: false,
         error: 'Failed to fetch profile',
-        message: error.message,
-        code: error.code
+        message: error.message
       });
     }
 
     if (!profile) {
       return res.status(404).json({
         success: false,
-        error: 'Profile not found',
-        message: 'User profile does not exist'
+        error: 'Profile not found'
       });
     }
 

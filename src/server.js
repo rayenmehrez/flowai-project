@@ -57,7 +57,7 @@ const corsOptions = {
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   exposedHeaders: ['Content-Range', 'X-Content-Range'],
   optionsSuccessStatus: 200,
   preflightContinue: false
@@ -72,22 +72,9 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false,
   contentSecurityPolicy: false // Disable CSP to avoid CORS conflicts
 }));
-// JSON parser with proper content-type handling
-app.use(express.json({ 
-  limit: '10mb',
-  type: ['application/json', 'text/json']
-}));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser()); // Parse cookies from requests
-
-// Ensure all responses are JSON
-app.use((req, res, next) => {
-  // Set default content type for JSON responses
-  if (!res.getHeader('Content-Type')) {
-    res.setHeader('Content-Type', 'application/json');
-  }
-  next();
-});
 
 // Rate limiting - Configured for proxy (Render.com)
 const limiter = rateLimit({
@@ -226,26 +213,12 @@ app.get('/', (req, res) => {
 app.use((err, req, res, next) => {
   logger.error('Error:', err);
   
-  // Ensure JSON response
-  if (!res.headersSent) {
-    res.setHeader('Content-Type', 'application/json');
-  }
-  
   // CORS errors
   if (err.message && err.message.includes('CORS')) {
     return res.status(403).json({
       success: false,
       error: 'CORS Error',
       message: err.message
-    });
-  }
-  
-  // Handle 406 Not Acceptable
-  if (err.status === 406 || err.message?.includes('Not Acceptable')) {
-    return res.status(406).json({
-      success: false,
-      error: 'Not Acceptable',
-      message: 'The requested content type is not supported. Please use application/json.'
     });
   }
   
@@ -262,7 +235,6 @@ app.use((err, req, res, next) => {
 // 404 handler
 app.use((req, res) => {
   logger.warn('404 Not Found:', { method: req.method, path: req.path });
-  res.setHeader('Content-Type', 'application/json');
   res.status(404).json({ 
     success: false,
     error: 'Not found',

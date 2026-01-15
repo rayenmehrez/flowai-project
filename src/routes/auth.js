@@ -303,52 +303,25 @@ router.post('/login', async (req, res) => {
 
     if (loginError) {
       logger.warn('Login failed:', { email, error: loginError.message });
-      return res.status(401).json({ 
-        success: false,
-        error: 'Invalid email or password' 
-      });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    if (!data || !data.user || !data.session) {
-      logger.error('Login succeeded but no user/session data returned');
-      return res.status(500).json({ 
-        success: false,
-        error: 'Internal server error: Invalid response from authentication service' 
-      });
-    }
-
-    // Get user profile - handle errors gracefully
-    let profile = null;
-    const { data: profileData, error: profileError } = await supabase
+    // Get user profile
+    const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .select('*')
       .eq('id', data.user.id)
       .single();
 
     if (profileError) {
-      // If profile doesn't exist (PGRST116), that's okay - user can create it later
-      if (profileError.code === 'PGRST116') {
-        logger.info('Profile not found for user, continuing without profile:', { userId: data.user.id });
-      } else {
-        // Log other errors but don't fail the login
-        logger.error('Profile fetch error (non-critical):', { 
-          userId: data.user.id,
-          error: profileError.message,
-          code: profileError.code 
-        });
-      }
-    } else {
-      profile = profileData;
+      logger.error('Profile fetch error:', profileError);
     }
 
-    // Return user data with or without profile
     res.json({
-      success: true,
       user: {
         id: data.user.id,
         email: data.user.email,
-        ...(profile || {}),
-        ...(data.user.user_metadata || {})
+        ...profile
       },
       session: data.session
     });
@@ -423,117 +396,18 @@ router.get('/me', authenticate, async (req, res) => {
       .single();
 
     if (error) {
-      // If profile doesn't exist, return user data without profile
-      if (error.code === 'PGRST116') {
-        logger.info('Profile not found for user, returning basic user data:', { userId: req.user.id });
-        return res.json({
-          success: true,
-          id: req.user.id,
-          email: req.user.email,
-          ...(req.user.user_metadata || {})
-        });
-      }
-      
       logger.error('Profile fetch error:', error);
-      return res.status(500).json({ 
-        success: false,
-        error: 'Failed to fetch profile',
-        message: error.message 
-      });
+      return res.status(500).json({ error: 'Failed to fetch profile' });
     }
 
     res.json({
-      success: true,
       id: req.user.id,
       email: req.user.email,
       ...profile
     });
   } catch (error) {
     logger.error('Get me error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Internal server error',
-      message: error.message 
-    });
-  }
-});
-
-/**
- * GET /api/auth/profile
- * Get current user profile (alternative endpoint)
- * Can be called with session token from login response
- */
-router.get('/profile', async (req, res) => {
-  try {
-    // Get token from Authorization header or query parameter
-    let token = null;
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-    } else if (req.query.token) {
-      token = req.query.token;
-    }
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        message: 'No authentication token provided'
-      });
-    }
-
-    // Validate token and get user
-    const { data: { user }, error: tokenError } = await supabase.auth.getUser(token);
-    
-    if (tokenError || !user) {
-      logger.warn('Invalid token for profile request:', { error: tokenError?.message });
-      return res.status(401).json({
-        success: false,
-        error: 'Unauthorized',
-        message: 'Invalid or expired token'
-      });
-    }
-
-    // Get user profile
-    const { data: profile, error: profileError } = await supabase
-      .from('user_profiles')
-      .select('*')
-      .eq('id', user.id)
-      .single();
-
-    if (profileError) {
-      // If profile doesn't exist, return user data without profile
-      if (profileError.code === 'PGRST116') {
-        logger.info('Profile not found for user, returning basic user data:', { userId: user.id });
-        return res.json({
-          success: true,
-          id: user.id,
-          email: user.email,
-          ...(user.user_metadata || {})
-        });
-      }
-      
-      logger.error('Profile fetch error:', profileError);
-      return res.status(500).json({
-        success: false,
-        error: 'Failed to fetch profile',
-        message: profileError.message
-      });
-    }
-
-    res.json({
-      success: true,
-      id: user.id,
-      email: user.email,
-      ...profile
-    });
-  } catch (error) {
-    logger.error('Get profile error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      message: error.message
-    });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

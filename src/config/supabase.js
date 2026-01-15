@@ -12,40 +12,13 @@ const supabase = createClient(supabaseUrl, supabaseServiceKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false
-  },
-  global: {
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-      'apikey': supabaseServiceKey,
-      'Prefer': 'return=representation'
-    }
-  },
-  db: {
-    schema: 'public'
   }
 });
 
 // Anon client (for frontend-like operations with RLS)
 const supabaseAnon = createClient(
   supabaseUrl,
-  process.env.SUPABASE_ANON_KEY || supabaseServiceKey,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false
-    },
-    global: {
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation'
-      }
-    },
-    db: {
-      schema: 'public'
-    }
-  }
+  process.env.SUPABASE_ANON_KEY || supabaseServiceKey
 );
 
 module.exports = {
