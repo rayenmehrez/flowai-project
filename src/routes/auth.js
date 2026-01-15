@@ -10,21 +10,13 @@ router.get('/test', (req, res) => {
   res.json({ message: 'Auth routes are working!', timestamp: new Date().toISOString() });
 });
 
-// Validation schemas - Flexible to support both old and new frontend formats
+// Validation schemas
 const registerSchema = Joi.object({
   email: Joi.string().email().required(),
   password: Joi.string().min(8).required(),
-  // New fields (optional to support legacy frontend)
-  first_name: Joi.string().min(1).max(50).optional(),
-  last_name: Joi.string().min(1).max(50).optional(),
-  username: Joi.string().min(3).max(30).pattern(/^[a-zA-Z0-9_]+$/).optional().allow(''),
-  // Legacy fields for backward compatibility
-  full_name: Joi.string().min(2).optional(),
-  name: Joi.string().min(2).optional(), // Some frontends use 'name'
-  // Optional fields
+  full_name: Joi.string().min(2).max(100).required(),
   company_name: Joi.string().max(100).optional().allow('', null),
-  phone_number: Joi.string().max(20).optional().allow('', null),
-  phone: Joi.string().max(20).optional().allow('', null) // Alternative field name
+  phone_number: Joi.string().max(20).optional().allow('', null)
 });
 
 const loginSchema = Joi.object({
@@ -33,11 +25,8 @@ const loginSchema = Joi.object({
 });
 
 const profileUpdateSchema = Joi.object({
-  first_name: Joi.string().min(1).max(50).optional(),
-  last_name: Joi.string().min(1).max(50).optional(),
-  username: Joi.string().min(3).max(30).pattern(/^[a-zA-Z0-9_]+$/).optional(),
-  full_name: Joi.string().min(2).optional(),
-  company_name: Joi.string().min(2).max(100).optional().allow(''),
+  full_name: Joi.string().min(2).max(100).required(),
+  company_name: Joi.string().max(100).optional().allow('', null),
   phone_number: Joi.string().max(20).optional().allow(''),
   avatar_url: Joi.string().uri().optional().allow(''),
   timezone: Joi.string().optional(),
@@ -47,7 +36,6 @@ const profileUpdateSchema = Joi.object({
 /**
  * POST /api/auth/register
  * Register a new user
- * Supports both new format (first_name, last_name) and legacy format (full_name, name)
  */
 router.post('/register', async (req, res) => {
   try {
@@ -70,52 +58,15 @@ router.post('/register', async (req, res) => {
     const { 
       email, 
       password, 
-      first_name: providedFirstName, 
-      last_name: providedLastName, 
-      username,
+      full_name,
       company_name, 
-      phone_number,
-      phone,
-      full_name: providedFullName,
-      name: providedName
+      phone_number
     } = value;
-
-    // Flexible name handling - support multiple input formats
-    let first_name = providedFirstName;
-    let last_name = providedLastName;
-    let full_name = providedFullName || providedName;
-
-    // If we have full_name or name but not first/last, split it
-    if (!first_name && !last_name && full_name) {
-      const nameParts = full_name.trim().split(' ');
-      first_name = nameParts[0] || 'User';
-      last_name = nameParts.slice(1).join(' ') || '';
-    }
-
-    // If we still don't have names, use email prefix
-    if (!first_name) {
-      first_name = email.split('@')[0] || 'User';
-    }
-    if (!last_name) {
-      last_name = '';
-    }
-
-    // Compute full_name if not provided
-    if (!full_name) {
-      full_name = `${first_name} ${last_name}`.trim();
-    }
-    
-    // Handle phone number (support both field names)
-    const finalPhoneNumber = phone_number || phone || null;
-    
-    // Generate username if not provided
-    const generatedUsername = username || `${first_name.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now().toString(36)}`;
 
     logger.info('Processed registration data:', { 
       email, 
-      first_name, 
-      last_name, 
-      username: generatedUsername 
+      full_name,
+      company_name
     });
 
     // Use Supabase Admin API to create user (required when using service role key)
@@ -124,12 +75,9 @@ router.post('/register', async (req, res) => {
       password,
       email_confirm: true, // Auto-confirm email
       user_metadata: {
-        first_name,
-        last_name,
         full_name,
-        username: generatedUsername,
         company_name: company_name || null,
-        phone_number: finalPhoneNumber
+        phone_number: phone_number || null
       }
     });
 
@@ -177,42 +125,18 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Create user profile - try with all fields first, fallback to basic fields
-    let profileError = null;
-    
-    // Try with extended fields first
-    const extendedProfile = {
+    // Create user profile
+    const profile = {
       id: authData.user.id,
       email,
-      first_name,
-      last_name,
-      username: generatedUsername,
       full_name,
       company_name: company_name || null,
-      phone_number: finalPhoneNumber
+      phone_number: phone_number || null
     };
 
-    const { error: extendedError } = await supabase
+    const { error: profileError } = await supabase
       .from('user_profiles')
-      .insert(extendedProfile);
-
-    if (extendedError) {
-      logger.warn('Extended profile creation failed, trying basic profile:', extendedError.message);
-      
-      // Fallback to basic profile (for databases without new columns)
-      const basicProfile = {
-        id: authData.user.id,
-        full_name,
-        company_name: company_name || null,
-        phone_number: finalPhoneNumber
-      };
-
-      const { error: basicError } = await supabase
-        .from('user_profiles')
-        .insert(basicProfile);
-
-      profileError = basicError;
-    }
+      .insert(profile);
 
     if (profileError) {
       logger.error('Profile creation error:', profileError);
@@ -240,13 +164,9 @@ router.post('/register', async (req, res) => {
           user: {
             id: authData.user.id,
             email: authData.user.email,
-            first_name,
-            last_name,
-            username: generatedUsername,
             full_name,
-            company_name,
-            phone_number,
-            subscription_tier: 'free',
+            company_name: company_name || null,
+            phone_number: phone_number || null,
             credits_balance: 100
           },
           session: sessionData.session || sessionData,
@@ -263,13 +183,9 @@ router.post('/register', async (req, res) => {
       user: {
         id: authData.user.id,
         email: authData.user.email,
-        first_name,
-        last_name,
-        username: generatedUsername,
         full_name,
-        company_name,
-        phone_number,
-        subscription_tier: 'free',
+        company_name: company_name || null,
+        phone_number: phone_number || null,
         credits_balance: 100
       },
       message: 'Account created successfully. Please login.'
@@ -524,10 +440,8 @@ router.get('/session', async (req, res) => {
         user: {
           id: userData.id,
           email: userData.email || userEmail,
-          name: userData.name || userData.email || 'User',
-          first_name: userData.first_name || null,
-          last_name: userData.last_name || null,
-          username: userData.username || null
+          full_name: userData.name || userData.email || 'User',
+          company_name: userData.company_name || null
         }
       });
 
@@ -579,7 +493,15 @@ router.put('/profile', authenticate, async (req, res) => {
     res.json({
       id: req.user.id,
       email: req.user.email,
-      ...profile
+      full_name: profile.full_name,
+      company_name: profile.company_name,
+      phone_number: profile.phone_number,
+      avatar_url: profile.avatar_url,
+      timezone: profile.timezone,
+      language: profile.language,
+      credits_balance: profile.credits_balance,
+      api_quota_used: profile.api_quota_used,
+      api_quota_limit: profile.api_quota_limit
     });
   } catch (error) {
     logger.error('Profile update error:', error);

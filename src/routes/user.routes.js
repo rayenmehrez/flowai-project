@@ -9,9 +9,7 @@ console.log('Loading user routes...');
 
 // Validation schema for profile updates
 const profileUpdateSchema = Joi.object({
-  first_name: Joi.string().min(1).max(50).optional(),
-  last_name: Joi.string().min(1).max(50).optional(),
-  full_name: Joi.string().min(2).max(100).optional(),
+  full_name: Joi.string().min(2).max(100).required(),
   company_name: Joi.string().max(100).optional().allow('', null),
   phone_number: Joi.string().max(20).optional().allow('', null),
   avatar_url: Joi.string().uri().optional().allow('', null),
@@ -55,17 +53,12 @@ router.get('/user/profile', authenticate, async (req, res) => {
       profile: {
         id: profile.id,
         email: req.user.email,
-        first_name: profile.first_name,
-        last_name: profile.last_name,
         full_name: profile.full_name,
-        username: profile.username,
         company_name: profile.company_name,
         phone_number: profile.phone_number,
         avatar_url: profile.avatar_url,
         timezone: profile.timezone,
         language: profile.language,
-        subscription_tier: profile.subscription_tier,
-        subscription_status: profile.subscription_status,
         credits_balance: profile.credits_balance,
         api_quota_used: profile.api_quota_used,
         api_quota_limit: profile.api_quota_limit,
@@ -102,19 +95,6 @@ router.put('/user/profile', authenticate, async (req, res) => {
     }
 
     logger.info('Update profile for user:', userId);
-
-    // Compute full_name if first_name or last_name changed
-    if (value.first_name || value.last_name) {
-      const { data: currentProfile } = await supabase
-        .from('user_profiles')
-        .select('first_name, last_name')
-        .eq('id', userId)
-        .single();
-
-      const firstName = value.first_name || currentProfile?.first_name || '';
-      const lastName = value.last_name || currentProfile?.last_name || '';
-      value.full_name = `${firstName} ${lastName}`.trim();
-    }
 
     const { data: profile, error } = await supabase
       .from('user_profiles')
@@ -157,7 +137,7 @@ router.get('/user/credits', authenticate, async (req, res) => {
 
     const { data: profile, error } = await supabase
       .from('user_profiles')
-      .select('credits_balance, credits_used_total, api_quota_used, api_quota_limit, subscription_tier, last_quota_reset')
+      .select('credits_balance, credits_used_total, api_quota_used, api_quota_limit, last_quota_reset')
       .eq('id', userId)
       .single();
 
@@ -177,7 +157,6 @@ router.get('/user/credits', authenticate, async (req, res) => {
         used_total: profile.credits_used_total || 0,
         api_quota_used: profile.api_quota_used || 0,
         api_quota_limit: profile.api_quota_limit || 10000,
-        subscription_tier: profile.subscription_tier || 'free',
         last_reset: profile.last_quota_reset
       }
     });
@@ -191,38 +170,6 @@ router.get('/user/credits', authenticate, async (req, res) => {
   }
 });
 
-/**
- * POST /api/user/credits/purchase
- * Purchase additional credits (placeholder for Stripe)
- */
-router.post('/user/credits/purchase', authenticate, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { amount, package_id } = req.body;
-
-    logger.info('Credit purchase request:', { userId, amount, package_id });
-
-    // TODO: Implement Stripe payment integration
-    // For now, return a placeholder response
-
-    res.json({
-      success: true,
-      message: 'Credit purchase feature coming soon',
-      data: {
-        requested_amount: amount,
-        package_id,
-        status: 'pending_implementation'
-      }
-    });
-  } catch (error) {
-    logger.error('Purchase credits error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-      message: error.message
-    });
-  }
-});
 
 /**
  * GET /api/user/stats
@@ -262,10 +209,10 @@ router.get('/user/stats', authenticate, async (req, res) => {
       .eq('agents.user_id', userId)
       .eq('is_active', true);
 
-    // Get profile for subscription info
+    // Get profile for credits info
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('credits_balance, subscription_tier, api_quota_used, api_quota_limit')
+      .select('credits_balance, api_quota_used, api_quota_limit')
       .eq('id', userId)
       .single();
 
@@ -277,7 +224,6 @@ router.get('/user/stats', authenticate, async (req, res) => {
         messages_today: totalMessagesToday,
         active_conversations: activeConversations || 0,
         credits_balance: profile?.credits_balance || 0,
-        subscription_tier: profile?.subscription_tier || 'free',
         api_quota_used: profile?.api_quota_used || 0,
         api_quota_limit: profile?.api_quota_limit || 10000
       }
