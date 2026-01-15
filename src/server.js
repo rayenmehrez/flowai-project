@@ -149,7 +149,6 @@ try {
   logger.info('  GET    /api/auth/me');
   logger.info('  GET    /api/auth/session');
   logger.info('  POST   /api/auth/set-cookie');
-  logger.info('  POST   /api/auth/google');
   logger.info('');
   logger.info('  Agents:');
   logger.info('  GET    /api/agents');
