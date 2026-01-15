@@ -66,25 +66,65 @@ const corsOptions = {
 // Apply CORS FIRST, before any other middleware
 app.use(cors(corsOptions));
 
+// Security headers middleware (OWASP best practices)
+const { securityHeaders, checkHardcodedSecrets } = require('./middleware/security');
+app.use(securityHeaders);
+
+// Check for hardcoded secrets (development only)
+checkHardcodedSecrets();
+
 // Middleware - Helmet configured to not interfere with CORS
 app.use(helmet({
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false // Disable CSP to avoid CORS conflicts
+  contentSecurityPolicy: false // Disable CSP to avoid CORS conflicts (we set it manually)
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser()); // Parse cookies from requests
 
+// Import sanitization middleware
+const { sanitizeBody, sanitizeQuery, sanitizeParams } = require('./middleware/sanitize');
+
+// Apply sanitization middleware globally
+app.use(sanitizeBody);
+app.use(sanitizeQuery);
+app.use(sanitizeParams);
+
 // Rate limiting - Configured for proxy (Render.com)
-const limiter = rateLimit({
+// General API rate limiter
+const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // limit each IP to 100 requests per windowMs
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  trustProxy: true // Trust proxy headers from Render.com
+  trustProxy: true, // Trust proxy headers from Render.com
+  message: 'Too many requests from this IP, please try again later.'
 });
-app.use('/api/', limiter);
+
+// Strict rate limiter for authentication endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // limit each IP to 5 requests per windowMs
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+  message: 'Too many authentication attempts, please try again later.',
+  skipSuccessfulRequests: true // Don't count successful requests
+});
+
+// Strict rate limiter for password reset
+const passwordResetLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 3, // limit each IP to 3 requests per hour
+  standardHeaders: true,
+  legacyHeaders: false,
+  trustProxy: true,
+  message: 'Too many password reset attempts, please try again later.'
+});
+
+// Apply general limiter to all API routes
+app.use('/api/', generalLimiter);
 
 // Request logging - Log all requests for debugging
 app.use((req, res, next) => {

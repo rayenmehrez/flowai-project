@@ -7,14 +7,42 @@ const Joi = require('joi');
 
 console.log('Loading user routes...');
 
-// Validation schema for profile updates
+// Validation schema for profile updates with security rules
 const profileUpdateSchema = Joi.object({
-  full_name: Joi.string().min(2).max(100).required(),
-  company_name: Joi.string().max(100).optional().allow('', null),
-  phone_number: Joi.string().max(20).optional().allow('', null),
-  avatar_url: Joi.string().uri().optional().allow('', null),
-  timezone: Joi.string().max(50).optional(),
-  language: Joi.string().valid('en', 'es', 'fr', 'ar', 'pt', 'de', 'it', 'zh').optional()
+  full_name: Joi.string()
+    .min(2)
+    .max(100)
+    .pattern(/^[a-zA-Z\s'-]+$/) // Only letters, spaces, hyphens, apostrophes
+    .required()
+    .messages({
+      'string.pattern.base': 'Full name can only contain letters, spaces, hyphens, and apostrophes',
+      'any.required': 'Full name is required'
+    }),
+  company_name: Joi.string()
+    .max(100)
+    .pattern(/^[a-zA-Z0-9\s&.,'-]*$/) // Alphanumeric and common business characters
+    .optional()
+    .allow('', null),
+  phone_number: Joi.string()
+    .max(20)
+    .pattern(/^[\d+\-() ]+$/) // Only digits, +, -, (, ), spaces
+    .optional()
+    .allow('', null),
+  avatar_url: Joi.string()
+    .uri({ scheme: ['http', 'https'] }) // Only allow http/https
+    .max(500)
+    .optional()
+    .allow('', null)
+    .messages({
+      'string.uri': 'Avatar URL must be a valid HTTP/HTTPS URL'
+    }),
+  timezone: Joi.string()
+    .max(50)
+    .pattern(/^[a-zA-Z/_-]+$/) // Valid timezone format
+    .optional(),
+  language: Joi.string()
+    .valid('en', 'es', 'fr', 'ar', 'pt', 'de', 'it', 'zh')
+    .optional()
 });
 
 /**
